@@ -20,7 +20,7 @@ start:
     mov ax, 0x0003 ;ah = 0(function code), al = video mode flag
     int 0x10 ;bios call video services
 
-    xor ax, ax
+    xor ax, ax       ;print bootloader start msg
     mov ds, ax
     mov si, startup_msg
     call _printstr
