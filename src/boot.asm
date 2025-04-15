@@ -25,14 +25,20 @@ start:
     mov si, startup_msg
     call _printstr
 
+    mov cx, 0x4000
+    call _wait
+
     call _disk_read ;read bootloader code to ram
 
     jmp main
 
 _disk_read:
+    mov di, 0 ;counter for retry
+_disk_read_loop:
+
     xor ax, ax
     mov ds, ax
-    mov si, disk_read_msg
+    mov si, disk_read_msg ;Reading from disk: diskNum
     call _printstr
 
     ;Read (al) number of sectors from ch, dh, cl, drive dl, store in es:bx
@@ -54,49 +60,39 @@ _disk_read:
     mov si, disk_read_success
     call _printstr
 
-
     ret
+
 __disk_read_fail:
+
+    ;if number of attempts is over or equal 8, restart computer
+    cmp di, 8
+    jge biosboot_pc
+
     xor ax, ax
     mov ds, ax
     mov si, disk_read_fail
     call _printstr
 
-    ;reset disk system
-    xor ax, ax
-    mov ds, ax
-    mov si, disk_read_reset
-    call _printstr
-
+    ;attempt to reset disk
     xor ax, ax ;scancode ah = 0
     mov dl, [diskNum]
     int 13 ;reset disk system
-    jc __disk_reset_fail
 
-    ;reset success
+    inc di
+    ;update number of attempts
+    mov ax, di
+    add ax, '0'
+    mov [attempt_num], al
+
     xor ax, ax
     mov ds, ax
-    mov si, disk_read_reset_success
-    call _printstr
-__disk_retry_resume:
-    xor ax, ax
-    mov ds, ax
-    mov si, disk_read_retry
+    mov si, attempts_msg
     call _printstr
 
-    jmp _disk_read
-
-__disk_reset_fail:
-    mov cx, 0x3000
+    mov cx, 0x2000
     call _wait
 
-    xor ax, ax
-    mov ds, ax
-    mov si, disk_read_reset_failure
-    call _printstr
-
-    jmp __disk_retry_resume
-
+    jmp _disk_read_loop
 
 ; subroutine to print a string until null terminator
 ; address of string: ds:si
@@ -116,7 +112,34 @@ __printstr_loop:
 __printstr_exit:
     ret
 
+biosboot_pc:
+    xor ax, ax
+    mov ds, ax
+    mov si, biosboot_msg
+    call _printstr
 
+    mov cx, 0xB000
+    call _wait
+
+    int 0x19
+
+    cli
+    hlt
+
+restart_pc:
+    xor ax, ax
+    mov ds, ax
+    mov si, restart_msg
+    call _printstr
+
+    mov cx, 0xB000
+    call _wait
+
+    ;jump to reset vector
+    jmp 0xFFFF:0x0000
+
+    cli
+    hlt
 
 ; subroutine to delay a certain amount of cpu cycles
 ; amount of clock cycles to wait(*17*65535): cx
@@ -129,27 +152,38 @@ __wait_innerloop:
     loop _wait
     ret
 
+    cli
     hlt
 
-    startup_msg db 'Nuck OS bootloader', 0xD, 0xA, 0
     disk_read_msg db 'Reading from disk: '
     diskNum db 1 ;reserved for BIOS drive number
     db 0xD, 0xA, 0
 
-    disk_read_fail db 'Disk read failure', 0xD, 0xA, 0
+    attempts_msg db 'Attempt '
+    attempt_num db 3
+    db ' of 8', 0xD, 0xA, 0
+
+    startup_msg db 'NuckOS bootloader', 0xD, 0xA, 0
+    disk_read_fail db 'Disk read failure, resetting...', 0xD, 0xA, 0
     disk_read_success db 'Disk read success', 0xD, 0xA, 0
 
-    disk_read_retry db 'Retrying', 0xD, 0xA, 0
-    disk_read_reset db 'Resetting disk', 0xD, 0xA, 0
-    disk_read_reset_failure db 'Disk reset failure', 0xD, 0xA, 0
-    disk_read_reset_success db 'Disk reset success', 0xD, 0xA, 0
+    biosboot_msg db 'Booting into BIOS setup...', 0xD, 0xA, 0
+    restart_msg db 'Restarting...', 0xD, 0xA, 0
 
-    times 510-($-$$) db 0
+    times 445-($-$$) db 0 ;446B bootloader code
+    db 0xAA
+    ;MBR partition table(64B)
+
+    times 510-($-$$) db 0 ;510B excluding boot signature
     db 0x55, 0xAA
-; end of first sector, 512B ---------------------------------------------------------------------
+; end of first sector, 512B -----------------------------------------------------------------------------------------------
 
 
 main:
+    ;bios beep tone
+    mov ah, 0x0E
+    mov al, 7
+    int 0x10
 
     xor ax, ax
     mov ds, ax
@@ -157,13 +191,6 @@ main:
     call _printstr
     mov si, osdesc
     call _printstr
-    mov si, archlogo
-    call _printstr
-
-
-
-
-
 
 hang:
 
@@ -215,6 +242,11 @@ _keyInterrupt_del:
     ;push back
     push ax
 _keyInterrupt_newline:
+
+
+    jmp biosboot_pc ;TEMPORARY TEST-----------------------------------------------------------------------------
+
+
     mov ah, 0x0E ;print character in tty
     int 0x10 ;video services
     
@@ -252,14 +284,19 @@ _keyInterrupt_exit:
     jmp hang_loop
 
 
+
+
+
+
+
+
+    cli
     hlt
-    
+
     oslogo db ' _   _                   ___    ____  ', 0xD, 0xA, '| | | |   ___   _ __    / _ \  / ___| ', 0xD, 0xA, "| |_| |  / _ \ | '_ \  | | | | \___ \ ", 0xD, 0xA, '|  _  | |  __/ | | | | | |_| |  ___', 0x29, ' |', 0xD, 0xA, '|_| |_|  \___| |_| |_|  \___/  |____/ ', 0xD, 0xA, 0
     osdesc db 34, 'operating system of the future ', 34, ' ', 40, 'TM', 41, 0xD, 0xA, 0
     archlogo db '                   -`', 0xD, 0xA, '                  .o+`', 0xD, 0xA, '                 `ooo/', 0xD, 0xA, '                `+oooo:', 0xD, 0xA, '               `+oooooo:', 0xD, 0xA, '               -+oooooo+:', 0xD, 0xA, '             `/:-:++oooo+:', 0xD, 0xA, '            `/++++/+++++++:', 0xD, 0xA, '           `/++++++++++++++:', 0xD, 0xA, '          `/+++ooooooooooooo/`', 0xD, 0xA, '         ./ooosssso++osssssso+`', 0xD, 0xA, '        .oossssso-````/ossssss+`', 0xD, 0xA, '       -osssssso.      :ssssssso.', 0xD, 0xA, '      :osssssss/        osssso+++.', 0xD, 0xA, '     /ossssssss/        +ssssooo/-', 0xD, 0xA, '   `/ossssso+/:-        -:/+osssso+-', 0xD, 0xA, '  `+sso+:-`                 `.-/+oso:', 0xD, 0xA, ' `++:.                           `-/+/', 0xD, 0xA, ' .`                                 `', 0xD, 0xA, 0
 
 
-
-
-times 10240-($-$$) db 0 ;total length of binary 20 sectors
-                           ;total length of disk 22 sectors, 1:code, 2-3:partition info 4-10:code
+times 10240-($-$$) db 0 ;total length of binary 20 sector
+                        ;total length of disk 22 sectors, 1:code, 2-3:partition info 4-10:code
