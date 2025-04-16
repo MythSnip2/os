@@ -94,6 +94,7 @@ __disk_read_fail:
 
     jmp _disk_read_loop
 
+
 ; subroutine to print a string until null terminator
 ; address of string: ds:si
 _printstr:
@@ -125,7 +126,6 @@ biosboot_pc:
 
     cli
     hlt
-
 restart_pc:
     xor ax, ax
     mov ds, ax
@@ -140,7 +140,6 @@ restart_pc:
 
     cli
     hlt
-
 ; subroutine to delay a certain amount of cpu cycles
 ; amount of clock cycles to wait(*17*65535): cx
 _wait:
@@ -178,13 +177,7 @@ __wait_innerloop:
     db 0x55, 0xAA
 ; end of first sector, 512B -----------------------------------------------------------------------------------------------
 
-
 main:
-    ;bios beep tone
-    mov ah, 0x0E
-    mov al, 7
-    int 0x10
-
     xor ax, ax
     mov ds, ax
     mov si, oslogo
@@ -192,111 +185,51 @@ main:
     mov si, osdesc
     call _printstr
 
+    ;print a helpful message
+    mov si, msg
+    call _printstr
+
 hang:
-
-    mov ax, 0
-    push ax ;0 for terminate
-    ;print shell character
-    mov ax, 0x0E7E ;~
-    int 0x10
-hang_loop:
-
-; subroutine to process keyboard interrupts, enter key makes newline
-_keyInterrupt:
     mov ax, 0x0001 ;ah = 1, get keyboard status(get character but non blocking)
     int 0x16 ;keyboard services
     ;return: AL = character, AH = scan code
-    jnz hang_loop ;if key not pressed jump back
+    jnz hang ;if key not pressed jump back
+
+    ;check if character is a
+    cmp al, 'a'
+    je _beep
+    ;check if character is 1
+    cmp al, '1'
+    je biosboot_pc
+    ;check if character is 2
+    cmp al, '2'
+    je restart_pc
+    ;check if character is 3
+    cmp al, '3'
+    je halt
 
 
-    ;check if character is 0xD
-    mov bl, 0xD
-    cmp al, bl ;if 0xD
-    je _keyInterrupt_newline
+    jmp hang
 
-    ;check if character is backspace
-    mov bl, 0x8
-    cmp al, bl ;if backspace
-    je _keyInterrupt_del
-
-    ;if character is not 0xD, save on stack
-    xor ah, ah
-    push ax
-
-    mov ah, 0x0E ;print character in tty
-    int 0x10 ;video services
-    jmp hang_loop
-
-_keyInterrupt_del:
+;bios beep tone
+_beep:
     mov ah, 0x0E
-    int 0x10 ;prints backspace(move cursor back)
-    mov al, 0x0
-    int 0x10 ;prints null (to erase character)
-    mov al, 0x8
-    int 0x10 ;moves cursor back again
-    pop ax
-    ;if it is not zero return immediately
-    mov bl, 0
-    cmp al, bl
-    jne hang_loop
-    ;push back
-    push ax
-_keyInterrupt_newline:
-
-
-    jmp biosboot_pc ;TEMPORARY TEST-----------------------------------------------------------------------------
-
-
-    mov ah, 0x0E ;print character in tty
-    int 0x10 ;video services
-    
-    mov al, 0xA ;line feed
-    int 0x10 ;video services
-
-    ;print all characters saved on stack
-_keyInterrupt_print:
-    pop ax
-    ;toodaloo if equal to 0
-    mov bx, 0
-    cmp ax, bx
-    je _keyInterrupt_exit ;if ax == 0, exit
-
-    ;print char
-    mov ah, 0x0E
+    mov al, 7
     int 0x10
+    jmp hang
 
-    ;loop back
-    jmp _keyInterrupt_print
-
-_keyInterrupt_exit:
-    ;restore the null value on stack for exit, then return
-    mov ax, 0
-    push ax
-
-    mov ax, 0x0E0D
-    int 0x10
-    mov al, 0x0A
-    int 0x10
-
-    ;print shell character
-    mov ax, 0x0E7E ;~
-    int 0x10
-    jmp hang_loop
-
-
-
-
-
-
-
-
+halt:
+    xor ax, ax
+    mov ds, ax
+    mov si, halt_msg
+    call _printstr
     cli
     hlt
 
+    msg db 'Press a for beep', 0xD, 0xA, 'Press 1 to go into BIOS setup(I think)', 0xD, 0xA, 'Press 2 to restart(far jump to reset vector)', 0xD, 0xA, 'Press 3 to halt', 0xD, 0xA, 0
+    halt_msg db 'Halted!', 0xD, 0xA, 0
     oslogo db ' _   _                   ___    ____  ', 0xD, 0xA, '| | | |   ___   _ __    / _ \  / ___| ', 0xD, 0xA, "| |_| |  / _ \ | '_ \  | | | | \___ \ ", 0xD, 0xA, '|  _  | |  __/ | | | | | |_| |  ___', 0x29, ' |', 0xD, 0xA, '|_| |_|  \___| |_| |_|  \___/  |____/ ', 0xD, 0xA, 0
-    osdesc db 34, 'operating system of the future ', 34, ' ', 40, 'TM', 41, 0xD, 0xA, 0
-    archlogo db '                   -`', 0xD, 0xA, '                  .o+`', 0xD, 0xA, '                 `ooo/', 0xD, 0xA, '                `+oooo:', 0xD, 0xA, '               `+oooooo:', 0xD, 0xA, '               -+oooooo+:', 0xD, 0xA, '             `/:-:++oooo+:', 0xD, 0xA, '            `/++++/+++++++:', 0xD, 0xA, '           `/++++++++++++++:', 0xD, 0xA, '          `/+++ooooooooooooo/`', 0xD, 0xA, '         ./ooosssso++osssssso+`', 0xD, 0xA, '        .oossssso-````/ossssss+`', 0xD, 0xA, '       -osssssso.      :ssssssso.', 0xD, 0xA, '      :osssssss/        osssso+++.', 0xD, 0xA, '     /ossssssss/        +ssssooo/-', 0xD, 0xA, '   `/ossssso+/:-        -:/+osssso+-', 0xD, 0xA, '  `+sso+:-`                 `.-/+oso:', 0xD, 0xA, ' `++:.                           `-/+/', 0xD, 0xA, ' .`                                 `', 0xD, 0xA, 0
-
+    osdesc db 34, 'operating system of the future ', 34, ' ', 40, 'TM', 41, 0xD, 0xA, 0xA, 0
 
 times 10240-($-$$) db 0 ;total length of binary 20 sector
                         ;total length of disk 22 sectors, 1:code, 2-3:partition info 4-10:code
