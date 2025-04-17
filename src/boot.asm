@@ -3,29 +3,33 @@ ORG 0x7C00
 
 
 start:
+    ;disable interrupts
+    cli
+    ;zero out the segment registers
     xor ax, ax
     mov ds, ax
-    mov si, startup_msg
-    call _printstr
+    mov es, ax
 
     ;save the disk number
     mov [diskNum], dl
 
     ;initialize stack
-    cli
-    mov sp, 0x7BFF ;below bootloader
-    sti
+    mov ss, ax
+    mov sp, 0x7BFF ;stack grows below bootloader
 
     ;set video mode to text mode(8x25)
     mov ax, 0x0003 ;ah = 0(function code), al = video mode flag
     int 0x10 ;bios call video services
+
+    ;enable interrupts
+    sti
 
     xor ax, ax       ;print bootloader start msg
     mov ds, ax
     mov si, startup_msg
     call _printstr
 
-    mov cx, 0x4000
+    mov cx, 0x2000
     call _wait
 
     call _disk_read ;read bootloader code to ram
@@ -33,7 +37,7 @@ start:
     jmp main
 
 _disk_read:
-    mov di, 0 ;counter for retry
+    xor di, di ;counter for retry
 _disk_read_loop:
 
     xor ax, ax
@@ -42,9 +46,9 @@ _disk_read_loop:
     call _printstr
 
     ;Read (al) number of sectors from ch, dh, cl, drive dl, store in es:bx
-    ;Read 19(0x13) sectors starting from 0:0:4 in drive dl, store in 0x7E00
+    ;Read 19(0x13) sectors starting from 0:0:2 in drive dl, store in 0x7E00
     mov ax, 0x0213 ;ah=scancode, Read sectors | al=number of sectors to read
-    mov cx, 0x0004 ;ch=cylinder number CHS | cl=sector number CHS
+    mov cx, 0x0002 ;ch=cylinder number CHS | cl=sector number CHS
     xor dh, dh ;head number CHS
     mov dl, [diskNum] ;drive number
     ;Address to store values in: es:bx which is 0:7E00
@@ -59,12 +63,10 @@ _disk_read_loop:
     mov ds, ax
     mov si, disk_read_success
     call _printstr
-
     ret
 
 __disk_read_fail:
-
-    ;if number of attempts is over or equal 8, restart computer
+    ;if number of attempts is over or equal 8
     cmp di, 8
     jge biosboot_pc
 
@@ -76,7 +78,7 @@ __disk_read_fail:
     ;attempt to reset disk
     xor ax, ax ;scancode ah = 0
     mov dl, [diskNum]
-    int 13 ;reset disk system
+    int 0x13 ;reset disk system
 
     inc di
     ;update number of attempts
@@ -93,7 +95,6 @@ __disk_read_fail:
     call _wait
 
     jmp _disk_read_loop
-
 
 ; subroutine to print a string until null terminator
 ; address of string: ds:si
@@ -119,12 +120,11 @@ biosboot_pc:
     mov si, biosboot_msg
     call _printstr
 
-    mov cx, 0xB000
+    mov cx, 0x4000
     call _wait
 
     int 0x19
 
-    cli
     hlt
 restart_pc:
     xor ax, ax
@@ -132,16 +132,15 @@ restart_pc:
     mov si, restart_msg
     call _printstr
 
-    mov cx, 0xB000
+    mov cx, 0x4000
     call _wait
 
     ;jump to reset vector
     jmp 0xFFFF:0x0000
 
-    cli
     hlt
-; subroutine to delay a certain amount of cpu cycles
-; amount of clock cycles to wait(*17*65535): cx
+; subroutine to delay a certain amount of BIOS clock ticks
+; cx: amount of ticks to wait(1 tick =~55ms)
 _wait:
     push cx
     mov cx, 0xFFFF
@@ -168,21 +167,48 @@ __wait_innerloop:
 
     biosboot_msg db 'Booting into BIOS setup...', 0xD, 0xA, 0
     restart_msg db 'Restarting...', 0xD, 0xA, 0
-
-    times 445-($-$$) db 0 ;446B bootloader code
-    db 0xAA
+    times 446-($-$$) db 0 ;446B bootloader code
     ;MBR partition table(64B)
+    ;first entry
+    db 0b10000000 ;bit 7: bootable flag
+    ;chs addressing of first sector
+    db 0b00000000 ;head (bits 0-7)
+    db 0b00000010 ;sector(bits 0-5, bits 6-7 are high bits for cylinder(8-9))
+    db 0b00000000 ;cylinder(bits 0-7)
+    db 0x0B ;partition type
+    ;chs addressing of last sector
+    db 0b00000000 ;head (bits 0-7)
+    db 0b00010100 ;sector(bits 0-5, bits 6-7 are high bits for cylinder(8-9))
+    db 0b00000000 ;cylinder(bits 0-7)
+    dd 0x00000001 ;LBA for first sector
+    dd 0x00000013 ;Number of sectors in partition
+    ;other entries
+    times 3*16 db 0
 
     times 510-($-$$) db 0 ;510B excluding boot signature
     db 0x55, 0xAA
 ; end of first sector, 512B -----------------------------------------------------------------------------------------------
+; buffer sector(s)
+times 512 db 0
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 main:
     xor ax, ax
     mov ds, ax
     mov si, oslogo
-    call _printstr
-    mov si, osdesc
     call _printstr
 
     ;print a helpful message
@@ -190,32 +216,119 @@ main:
     call _printstr
 
 hang:
-    mov ax, 0x0001 ;ah = 1, get keyboard status(get character but non blocking)
+    mov ah, 0x01;ah = 1, get keyboard status(check if a key is pressed)
     int 0x16 ;keyboard services
     ;return: AL = character, AH = scan code
-    jnz hang ;if key not pressed jump back
+    jz hang ;if key not pressed jump back
+    ;if there is a key use int 0x16,0 to get the results
+    mov ah, 0x00
+    int 0x16 ;ah = scancode, al = char
 
-    ;check if character is a
-    cmp al, 'a'
-    je _beep
-    ;check if character is 1
-    cmp al, '1'
+    ;detect F1-5 HIGH
+    cmp ah, 0x3B
     je biosboot_pc
-    ;check if character is 2
-    cmp al, '2'
+    cmp ah, 0x3C
     je restart_pc
-    ;check if character is 3
-    cmp al, '3'
+    cmp ah, 0x3D
+    je cls
+    cmp ah, 0x3E
     je halt
+    cmp ah, 0x3F
+    je biosbeep
 
+    ;loop through array of characters to match al with the character, then play the right frequency
+    push ax
+    call hang_virtual_piano
+    pop ax
 
     jmp hang
 
-;bios beep tone
-_beep:
-    mov ah, 0x0E
-    mov al, 7
+;subroutine to play a note in virtual piano
+;key: al
+hang_virtual_piano:
+    ;for(int i=0;i<key_length-1;i++){
+    ;   if(al == keys[i]){
+    ;       tone(notes[i])
+    ;       return
+    ;   }
+    ;}
+
+
+
+
+    ;char i = 0;
+    ;char len = keylen - 1;
+    ;loop:
+    ;if i >= len:
+    ;  return
+    ;
+    ;k = [keys + i]
+    ;if i == k:
+    ;  freq = [notes + 2 * i]
+    ;  tone(freq)
+    ;  return
+    ;
+    ;i++;
+    ;goto loop
+    ;return
+
+    ;i: cx
+    ;keylen: dx
+    ;k: ax
+    xor cx, cx             ;i = 0
+    mov dx, [keylen]
+    dec dx                 ;k = 9
+hang_virtual_piano_loop:
+    cmp cx, dx
+    jge hang               ;return if i >= k
+    mov si, cx             ;si = i
+    xor bx, bx
+    mov bl, [keys + si]    ;bl = keys[i]
+    cmp al, bl             ;if pressed_key == keys[i]
+    je hang_virtual_piano_play
+
+    inc cx                 ;i++
+    jmp hang_virtual_piano_loop
+
+hang_virtual_piano_play:
+    mov ax, cx
+    mov cx, 2
+    mul cx
+    mov si, ax
+    mov ax, [notes + si]
+    
+    call _tone
+    mov cx, 0xffff
+    call _wait_PIT
+    call speaker_off
+    jmp hang
+
+cli
+hlt
+keylen dw 10
+keys db '0987654321'
+notes dw 65, 73, 82, 87, 98, 110, 123, 131, 147, 164,     174, 196, 220, 246, 262
+cls:
+    xor ax, ax
+    mov cx, 30
+cls_loop:
+    push cx
+    mov ax, 0x0E0D
     int 0x10
+    mov ax, 0x0E0A
+    int 0x10
+    pop cx
+    loop cls_loop
+    jmp hang
+
+;bios beep tone
+biosbeep:
+    xor ax, ax
+    mov ds, ax
+    mov si, beep_msg
+    call _printstr
+    mov cx, 0x1000
+    call _wait
     jmp hang
 
 halt:
@@ -226,10 +339,115 @@ halt:
     cli
     hlt
 
-    msg db 'Press a for beep', 0xD, 0xA, 'Press 1 to go into BIOS setup(I think)', 0xD, 0xA, 'Press 2 to restart(far jump to reset vector)', 0xD, 0xA, 'Press 3 to halt', 0xD, 0xA, 0
+;cx is amount of ticks to wait
+_wait_PIT:
+    xor bx, bx
+    cli
+    mov al, 0b00000000
+    out 0x43, al
+    in al, 0x40 ;LSB
+    mov bl, al
+    in al, 0x40 ;MSB
+    mov bh, al
+    sti
+    mov dx, bx ;dx = starting count
+
+_wait_PIT_loop:
+    cli                      ;read the count again
+    mov al, 0b00000000
+    out 0x43, al
+    in al, 0x40 ;LSB
+    mov bl, al
+    in al, 0x40 ;MSB
+    mov bh, al
+    sti
+    ;compute time difference = current count - start count
+    sub bx, dx
+    cmp bx, cx  ;if time diff < wait ticks, loop again
+    jl _wait_PIT_loop
+    ret
+
+;PIT notes
+;I/O port     Usage
+;0x40         Channel 0 data port (read/write)
+;0x41         Channel 1 data port (read/write)
+;0x42         Channel 2 data port (read/write)
+;0x43         Mode/Command register (write only, a read is ignored)
+;
+;Bits:  7 6 5 4 3 2 1 0
+;       | | | | | | | +-- BCD (0 = binary, 1 = BCD)
+;       | | | | +--+-- Mode (0–5)
+;       | | +-----+-- Access Mode: 
+;       | |          01 = LSB, 10 = MSB, 11 = LSB+MSB
+;       +---- Channel (00 = ch0, 01 = ch1, 10 = ch2)
+;subroutine to play a tone
+;ax: frequency
+_tone:
+    push ax
+    ;calculate divisor from frequency
+    ;divisor = 1193182 / freq
+    ;load numerator into dx:ax (1193182)(0x1234DE)
+    mov dx, 0x12
+    mov ax, 0x34DE
+    ;load denominator into bx(frequency)
+    pop bx
+    ;divide
+    div bx ;dx:ax / bx, quotient ax, remainder dx
+    push ax ;save on stack
+
+    call speaker_off
+    ;write to PIT control register
+    mov al, 0b10110110
+    out 0x43, al ;channel 2, LSB+MSB, mode 3, binary
+    ;write divisor to channel 2 data port
+    pop ax         ; Divisor
+    mov bx, ax
+    mov al, bl
+    out 0x42, al         ; LSB first
+    mov al, bh
+    out 0x42, al         ; Then MSB
+    
+    call speaker_on
+    xor ax, ax
+    mov ds, ax
+    ret
+
+;tell speaker to not shut up
+speaker_on:
+    in al, 0x61
+    or al, 0b11
+    out 0x61, al ;bit 0 enable speaker, bit 1 enable timer 2 gate(PIT square wave)
+    ret
+;tell speaker to shut up
+speaker_off:
+    in al, 0x61
+    and al, 0b11111100
+    out 0x61, al
+    ret
+
+
+
+    cli
+    hlt
+
+    msg db 0xD, 0xA
+    db 'Press F1 to go into BIOS setup(I think)', 0xD, 0xA
+    db 'Press F2 to restart(far jump to reset vector)', 0xD, 0xA
+    db 'Press F3 to clear screen', 0xD, 0xA
+    db 'Press F4 to halt', 0xD, 0xA
+    db 'Press F5 for BIOS beep', 0xD, 0xA
+    db 'also virtual piano probably works', 0xD, 0xA
+    db 0
+
+    beep_msg db 'oah', 0xD, 0xA, 0x7, 0
     halt_msg db 'Halted!', 0xD, 0xA, 0
-    oslogo db ' _   _                   ___    ____  ', 0xD, 0xA, '| | | |   ___   _ __    / _ \  / ___| ', 0xD, 0xA, "| |_| |  / _ \ | '_ \  | | | | \___ \ ", 0xD, 0xA, '|  _  | |  __/ | | | | | |_| |  ___', 0x29, ' |', 0xD, 0xA, '|_| |_|  \___| |_| |_|  \___/  |____/ ', 0xD, 0xA, 0
-    osdesc db 34, 'operating system of the future ', 34, ' ', 40, 'TM', 41, 0xD, 0xA, 0xA, 0
+    oslogo db 0xD, 0xA
+    db ' _   _                  _       ___    ____  ', 0xD, 0xA
+    db '| \ | |  _   _    ___  | | __  / _ \  / ___| ', 0xD, 0xA
+    db '|  \| | | | | |  / __| | |/ / | | | | \___ \ ', 0xD, 0xA
+    db '| |\  | | |_| | | (__  |   <  | |_| |  ___) |', 0xD, 0xA
+    db '|_| \_|  \__,_|  \___| |_|\_\  \___/  |____/ ', 0xD, 0xA
+    db 34, 'operating system of the future ', 34, ' ', 40, 'TM', 41, 0xD, 0xA, 0
 
 times 10240-($-$$) db 0 ;total length of binary 20 sector
                         ;total length of disk 22 sectors, 1:code, 2-3:partition info 4-10:code
