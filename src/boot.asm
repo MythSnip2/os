@@ -236,10 +236,11 @@ hang:
     cmp ah, 0x3F
     je biosbeep
 
-    ;loop through array of characters to match al with the character, then play the right frequency
     push ax
     call hang_virtual_piano
     pop ax
+
+
 
     jmp hang
 
@@ -276,8 +277,7 @@ hang_virtual_piano:
     ;keylen: dx
     ;k: ax
     xor cx, cx             ;i = 0
-    mov dx, [keylen]
-    dec dx                 ;k = 9
+    mov dx, [keylen]       ;k = 10
 hang_virtual_piano_loop:
     cmp cx, dx
     jge hang               ;return if i >= k
@@ -291,7 +291,10 @@ hang_virtual_piano_loop:
     jmp hang_virtual_piano_loop
 
 hang_virtual_piano_play:
-    mov ax, cx
+    push cx
+    mov ah, 0x0E
+    int 0x10
+    pop ax
     mov cx, 2
     mul cx
     mov si, ax
@@ -299,6 +302,7 @@ hang_virtual_piano_play:
     
     call _tone
     mov cx, 0xffff
+    mov dx, 0x6
     call _wait_PIT
     call speaker_off
     jmp hang
@@ -306,8 +310,9 @@ hang_virtual_piano_play:
 cli
 hlt
 keylen dw 10
-keys db '0987654321'
+keys db '1234567890'
 notes dw 65, 73, 82, 87, 98, 110, 123, 131, 147, 164,     174, 196, 220, 246, 262
+
 cls:
     xor ax, ax
     mov cx, 30
@@ -339,9 +344,39 @@ halt:
     cli
     hlt
 
-;cx is amount of ticks to wait
+
+;dx*cx is amount of ticks to wait
 _wait_PIT:
-    xor bx, bx
+    push cx
+    call _wait_PIT_once
+    pop cx
+    dec dx
+    jnz _wait_PIT
+    ret
+
+;cx, starting
+;cx is amount of ticks to wait
+_wait_PIT_once:
+    push cx
+    call _read_PIT_ticks
+    push bx ;bx = starting count, pushed
+_wait_PIT_once_loop:
+    call _read_PIT_ticks ;read the count again, store in bx
+    ;compute time difference = current count - start count
+    pop ax      ;current count is bx, starting count is ax
+    sub bx, ax  ;bx = time diff
+    pop cx
+    push cx
+    push ax
+    cmp bx, cx  ;if time diff < wait ticks, loop again
+    jl _wait_PIT_once_loop
+    pop ax
+    pop ax
+    ret
+
+
+;returns PIT ticks stored in bx
+_read_PIT_ticks:
     cli
     mov al, 0b00000000
     out 0x43, al
@@ -350,21 +385,6 @@ _wait_PIT:
     in al, 0x40 ;MSB
     mov bh, al
     sti
-    mov dx, bx ;dx = starting count
-
-_wait_PIT_loop:
-    cli                      ;read the count again
-    mov al, 0b00000000
-    out 0x43, al
-    in al, 0x40 ;LSB
-    mov bl, al
-    in al, 0x40 ;MSB
-    mov bh, al
-    sti
-    ;compute time difference = current count - start count
-    sub bx, dx
-    cmp bx, cx  ;if time diff < wait ticks, loop again
-    jl _wait_PIT_loop
     ret
 
 ;PIT notes
@@ -439,7 +459,7 @@ speaker_off:
     db 'also virtual piano probably works', 0xD, 0xA
     db 0
 
-    beep_msg db 'oah', 0xD, 0xA, 0x7, 0
+    beep_msg db 'oAh', 0xD, 0xA, 0x7, 0
     halt_msg db 'Halted!', 0xD, 0xA, 0
     oslogo db 0xD, 0xA
     db ' _   _                  _       ___    ____  ', 0xD, 0xA
