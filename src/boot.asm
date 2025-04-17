@@ -5,6 +5,8 @@ ORG 0x7C00
 start:
     ;disable interrupts
     cli
+
+    cld
     ;zero out the segment registers
     xor ax, ax
     mov ds, ax
@@ -20,6 +22,11 @@ start:
     ;set video mode to text mode(8x25)
     mov ax, 0x0003 ;ah = 0(function code), al = video mode flag
     int 0x10 ;bios call video services
+    ;enable cursor
+    mov ah, 0x01 ;ah = 1
+    xor cx, cx ;ch = start scanline, cl = end scanline
+
+
 
     ;enable interrupts
     sti
@@ -28,9 +35,6 @@ start:
     mov ds, ax
     mov si, startup_msg
     call _printstr
-
-    mov cx, 0x2000
-    call _wait
 
     call _disk_read ;read bootloader code to ram
 
@@ -68,7 +72,7 @@ _disk_read_loop:
 __disk_read_fail:
     ;if number of attempts is over or equal 8
     cmp di, 8
-    jge biosboot_pc
+    jge __disk_read_fail_final
 
     xor ax, ax
     mov ds, ax
@@ -96,6 +100,16 @@ __disk_read_fail:
 
     jmp _disk_read_loop
 
+__disk_read_fail_final:
+    xor ax, ax
+    mov ds, ax
+    mov si, disk_read_fail_final
+    call _printstr
+    ;blocking keyboard input
+    xor ax, ax
+    int 0x16 ;keyboard services
+    jmp biosboot_pc
+
 ; subroutine to print a string until null terminator
 ; address of string: ds:si
 _printstr:
@@ -120,7 +134,7 @@ biosboot_pc:
     mov si, biosboot_msg
     call _printstr
 
-    mov cx, 0x4000
+    mov cx, 0x2000
     call _wait
 
     int 0x19
@@ -132,7 +146,7 @@ restart_pc:
     mov si, restart_msg
     call _printstr
 
-    mov cx, 0x4000
+    mov cx, 0x2000
     call _wait
 
     ;jump to reset vector
@@ -163,6 +177,7 @@ __wait_innerloop:
 
     startup_msg db 'NuckOS bootloader', 0xD, 0xA, 0
     disk_read_fail db 'Disk read failure, resetting...', 0xD, 0xA, 0
+    disk_read_fail_final db 'Disk read failed, press any key to continue...', 0xD, 0xA, 0
     disk_read_success db 'Disk read success', 0xD, 0xA, 0
 
     biosboot_msg db 'Booting into BIOS setup...', 0xD, 0xA, 0
@@ -190,15 +205,6 @@ __wait_innerloop:
 ; end of first sector, 512B -----------------------------------------------------------------------------------------------
 ; buffer sector(s)
 times 512 db 0
-
-
-
-
-
-
-
-
-
 
 
 
@@ -240,42 +246,13 @@ hang:
     call hang_virtual_piano
     pop ax
 
-
-
     jmp hang
+
+
 
 ;subroutine to play a note in virtual piano
 ;key: al
 hang_virtual_piano:
-    ;for(int i=0;i<key_length-1;i++){
-    ;   if(al == keys[i]){
-    ;       tone(notes[i])
-    ;       return
-    ;   }
-    ;}
-
-
-
-
-    ;char i = 0;
-    ;char len = keylen - 1;
-    ;loop:
-    ;if i >= len:
-    ;  return
-    ;
-    ;k = [keys + i]
-    ;if i == k:
-    ;  freq = [notes + 2 * i]
-    ;  tone(freq)
-    ;  return
-    ;
-    ;i++;
-    ;goto loop
-    ;return
-
-    ;i: cx
-    ;keylen: dx
-    ;k: ax
     xor cx, cx             ;i = 0
     mov dx, [keylen]       ;k = 10
 hang_virtual_piano_loop:
@@ -301,28 +278,37 @@ hang_virtual_piano_play:
     mov ax, [notes + si]
     
     call _tone
-    mov cx, 0xffff
-    mov dx, 0x6
+    mov cx, 0xFFFF
+    mov dx, 0x5
     call _wait_PIT
     call speaker_off
     jmp hang
 
-cli
-hlt
-keylen dw 10
-keys db '1234567890'
-notes dw 65, 73, 82, 87, 98, 110, 123, 131, 147, 164,     174, 196, 220, 246, 262
+    cli
+    hlt
+keylen dw 61
+keys db '1234567890qwertyuiopasdfghjklzxcvbnm'
+db '!@$%^*', 40, 'QWETYIOPSDGHJLZCVB'
+
+notes dw 65, 73, 82, 87, 98, 110, 123
+dw 131, 147, 164, 174, 196, 220, 246
+dw 262, 294, 330, 349, 392, 440, 494
+dw 523, 587, 659, 698, 784, 880, 988
+dw 1047, 1175, 1319, 1397, 1568, 1760, 1976
+dw 2093
+dw 69, 78, 92, 104, 117
+dw 139, 156, 185, 208, 233
+dw 277, 311, 370, 415, 466
+dw 554, 622, 740, 831, 932
+dw 1109, 1245, 1480, 1661, 1865
 
 cls:
-    xor ax, ax
-    mov cx, 30
+    mov cx, 50
 cls_loop:
-    push cx
     mov ax, 0x0E0D
     int 0x10
     mov ax, 0x0E0A
     int 0x10
-    pop cx
     loop cls_loop
     jmp hang
 
@@ -337,13 +323,56 @@ biosbeep:
     jmp hang
 
 halt:
-    xor ax, ax
-    mov ds, ax
-    mov si, halt_msg
-    call _printstr
+    mov cx, 50
+halt_cls_loop:
+    mov ax, 0x0E0D
+    int 0x10
+    mov ax, 0x0E0A
+    int 0x10
+    loop halt_cls_loop
+    ;disable cursor
+    mov ah, 0x01
+    mov cx, 0x2000 ;disable cursor
+    int 0x10    ;int 0x10, 1: set cursor type
+
     cli
     hlt
 
+
+
+
+
+
+
+
+
+
+_printstr_color:
+    cld ;clear DF flag in FLAGS
+__printstr_color_loop:
+    mov al, [si]
+    inc si
+
+    or al, al ;if al = 0
+    jz __printstr_color_exit ;exit loop
+    push si
+    mov ah, 0x09 ;write character with attribute
+    mov bx, 0x00A0 ;bh page num, bl attribute
+    mov cx, 1 ;number of times to write
+    int 0x10 ;bios call video services
+    
+    mov ah, 0x03 ;read cursor position
+    mov bh, 0x00 ;page num
+    int 0x10
+
+    inc dl ;increment column
+    mov ah, 0x02 ;set cursor position
+    mov bh, 0x00 ;page num
+    int 0x10
+    pop si
+    jmp __printstr_color_loop
+__printstr_color_exit:
+    ret
 
 ;dx*cx is amount of ticks to wait
 _wait_PIT:
@@ -445,8 +474,6 @@ speaker_off:
     out 0x61, al
     ret
 
-
-
     cli
     hlt
 
@@ -457,17 +484,23 @@ speaker_off:
     db 'Press F4 to halt', 0xD, 0xA
     db 'Press F5 for BIOS beep', 0xD, 0xA
     db 'also virtual piano probably works', 0xD, 0xA
+    
+    
     db 0
 
     beep_msg db 'oAh', 0xD, 0xA, 0x7, 0
-    halt_msg db 'Halted!', 0xD, 0xA, 0
     oslogo db 0xD, 0xA
-    db ' _   _                  _       ___    ____  ', 0xD, 0xA
-    db '| \ | |  _   _    ___  | | __  / _ \  / ___| ', 0xD, 0xA
-    db '|  \| | | | | |  / __| | |/ / | | | | \___ \ ', 0xD, 0xA
-    db '| |\  | | |_| | | (__  |   <  | |_| |  ___) |', 0xD, 0xA
-    db '|_| \_|  \__,_|  \___| |_|\_\  \___/  |____/ ', 0xD, 0xA
+    db ' _   _                  _       ___    ____    _        ___  ', 0xD, 0xA
+    db '| \ | |  _   _    ___  | | __  / _ \  / ___|  / |      / _ \ ', 0xD, 0xA
+    db '|  \| | | | | |  / __| | |/ / | | | | \___ \  | |     | | | |', 0xD, 0xA
+    db '| |\  | | |_| | | (__  |   <  | |_| |  ___) | | |  _  | |_| |', 0xD, 0xA
+    db '|_| \_|  \__,_|  \___| |_|\_\  \___/  |____/  |_| (_)  \___/ ', 0xD, 0xA
     db 34, 'operating system of the future ', 34, ' ', 40, 'TM', 41, 0xD, 0xA, 0
+
+    
+
+
+
 
 times 10240-($-$$) db 0 ;total length of binary 20 sector
                         ;total length of disk 22 sectors, 1:code, 2-3:partition info 4-10:code
