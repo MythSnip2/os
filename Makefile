@@ -41,14 +41,20 @@ mk:
 	#create MBR table and do partitioning
 	#echo -e "o\nn\np\n1\n1\n\nt 1\nb\na\nw\n" | sudo fdisk build/boot.dd
 
-	sudo cp build/boot.bin build/boot.dd
+	#60 MiB + 2048 sectors
+	sudo dd if=/dev/zero of=build/boot.dd bs=512 count=124928
+	sudo chmod 644 build/boot.dd
+	sudo chown mythsnipper:mythsnipper build/boot.dd
+
+	sudo dd if=build/boot.bin of=build/boot.dd
 
 cpimg:
-	sudo dd if=build/boot.dd of=$(DEVICE) bs=$$(echo $$((8 * 1024 * 1024)))
+	lsblk
+	sudo dd if=build/boot.dd of=$(DEVICE) bs=5MiB
 	sudo sync
 
 qemu:
-	sudo qemu-system-x86_64 -enable-kvm -cpu host -drive format=raw,file=build/boot.dd
-
+	sudo qemu-system-x86_64 -drive format=raw,file=build/boot.dd -smp 1 -m 1G
+	
 clean:
 	sudo rm -f build/*

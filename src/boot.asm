@@ -2,11 +2,15 @@ BITS 16
 ORG 0x7C00
 
 
-start:
+start_boot:
+
+
+    ;set positive direction DF=0
+    cld
+
     ;disable interrupts
     cli
 
-    cld
     ;zero out the segment registers
     xor ax, ax
     mov ds, ax
@@ -17,7 +21,7 @@ start:
 
     ;initialize stack
     mov ss, ax
-    mov sp, 0x7BFF ;stack grows below bootloader
+    mov sp, 0x7C00 ;stack grows below bootloader
 
     ;set video mode to text mode(8x25)
     mov ax, 0x0003 ;ah = 0(function code), al = video mode flag
@@ -168,7 +172,7 @@ __wait_innerloop:
     hlt
 
     disk_read_msg db 'Reading from disk: '
-    diskNum db 1 ;reserved for BIOS drive number
+    diskNum db 0 ;reserved for BIOS drive number
     db 0xD, 0xA, 0
 
     attempts_msg db 'Attempt '
@@ -184,19 +188,26 @@ __wait_innerloop:
     restart_msg db 'Restarting...', 0xD, 0xA, 0
     times 446-($-$$) db 0 ;446B bootloader code
     ;MBR partition table(64B)
+    ;
+    ;bootable, start 2048 end 124927 size 60MiB
+    ;
+    ;
+    ;
+    ;
+    ;
     ;first entry
     db 0b10000000 ;bit 7: bootable flag
     ;chs addressing of first sector
-    db 0b00000000 ;head (bits 0-7)
-    db 0b00000010 ;sector(bits 0-5, bits 6-7 are high bits for cylinder(8-9))
+    db 0b00100000 ;head (bits 0-7)
+    db 0b00100001 ;sector(bits 0-5, bits 6-7 are high bits for cylinder(8-9))
     db 0b00000000 ;cylinder(bits 0-7)
-    db 0x0B ;partition type
+    db 0x0C ;partition type (W95 FAT32 (LBA))
     ;chs addressing of last sector
-    db 0b00000000 ;head (bits 0-7)
-    db 0b00010100 ;sector(bits 0-5, bits 6-7 are high bits for cylinder(8-9))
-    db 0b00000000 ;cylinder(bits 0-7)
-    dd 0x00000001 ;LBA for first sector
-    dd 0x00000013 ;Number of sectors in partition
+    db 0b11000101 ;head (bits 0-7)
+    db 0b00111110 ;sector(bits 0-5, bits 6-7 are high bits for cylinder(8-9))
+    db 0b00000111 ;cylinder(bits 0-7)
+    dd 0x00000800 ;LBA for first sector
+    dd 0x0001E000 ;Number of sectors in partition
     ;other entries
     times 3*16 db 0
 
@@ -230,7 +241,13 @@ hang:
     mov ah, 0x00
     int 0x16 ;ah = scancode, al = char
 
-    ;detect F1-5 HIGH
+    ;print char
+    push ax
+    mov ah, 0x0E
+    int 0x10
+    pop ax
+
+    ;detect F1-6 HIGH
     cmp ah, 0x3B
     je biosboot_pc
     cmp ah, 0x3C
@@ -241,6 +258,8 @@ hang:
     je halt
     cmp ah, 0x3F
     je biosbeep
+    cmp ah, 0x40
+    je boot_pmode
 
     push ax
     call hang_virtual_piano
@@ -248,18 +267,57 @@ hang:
 
     jmp hang
 
-
-
 ;subroutine to play a note in virtual piano
 ;key: al
 hang_virtual_piano:
+    ;change mode
+    push ax
+
+    cmp al, 0x3B
+    je hang_virtual_piano_mode_rst
+    cmp al, 0x27
+    je hang_virtual_piano_mode_1
+    cmp al, 0x22
+    je hang_virtual_piano_mode_2
+    jmp hang_virtual_piano_mode_done
+hang_virtual_piano_mode_rst:
+    xor ax, ax
+    mov [hang_virtual_piano_mode], al
+    mov ds, ax
+    mov si, mode_rst_msg
+    call _printstr
+    jmp hang_virtual_piano_mode_done
+hang_virtual_piano_mode_1:
+    mov ax, 0x0001
+    mov [hang_virtual_piano_mode], al
+    xor ax, ax
+    mov ds, ax
+    mov si, mode_1_msg
+    call _printstr    
+    jmp hang_virtual_piano_mode_done
+hang_virtual_piano_mode_2:
+    mov ax, 0x0002
+    mov [hang_virtual_piano_mode], al
+    xor ax, ax
+    mov ds, ax
+    mov si, mode_2_msg
+    call _printstr
+hang_virtual_piano_mode_done:
+    ;load difference in di
+    xor ax, ax
+    mov al, [hang_virtual_piano_mode]
+    mov bx, 122 ;byte difference between the modes defined contiguously in memory
+    xor dx, dx
+    mul bx
+    mov di, ax
+    pop ax
+
     xor cx, cx             ;i = 0
     mov dx, [keylen]       ;k = 10
 hang_virtual_piano_loop:
     cmp cx, dx
     jge hang               ;return if i >= k
     mov si, cx             ;si = i
-    xor bx, bx
     mov bl, [keys + si]    ;bl = keys[i]
     cmp al, bl             ;if pressed_key == keys[i]
     je hang_virtual_piano_play
@@ -268,14 +326,15 @@ hang_virtual_piano_loop:
     jmp hang_virtual_piano_loop
 
 hang_virtual_piano_play:
-    push cx
-    mov ah, 0x0E
-    int 0x10
-    pop ax
+    mov ax, cx
     mov cx, 2
     mul cx
     mov si, ax
-    mov ax, [notes + si]
+    mov ax, notes
+    add ax, di
+    add ax, si
+    mov bx, ax
+    mov ax, [bx]
     
     call _tone
     mov cx, 0xFFFF
@@ -283,24 +342,6 @@ hang_virtual_piano_play:
     call _wait_PIT
     call speaker_off
     jmp hang
-
-    cli
-    hlt
-keylen dw 61
-keys db '1234567890qwertyuiopasdfghjklzxcvbnm'
-db '!@$%^*', 40, 'QWETYIOPSDGHJLZCVB'
-
-notes dw 65, 73, 82, 87, 98, 110, 123
-dw 131, 147, 164, 174, 196, 220, 246
-dw 262, 294, 330, 349, 392, 440, 494
-dw 523, 587, 659, 698, 784, 880, 988
-dw 1047, 1175, 1319, 1397, 1568, 1760, 1976
-dw 2093
-dw 69, 78, 92, 104, 117
-dw 139, 156, 185, 208, 233
-dw 277, 311, 370, 415, 466
-dw 554, 622, 740, 831, 932
-dw 1109, 1245, 1480, 1661, 1865
 
 cls:
     mov cx, 50
@@ -338,42 +379,6 @@ halt_cls_loop:
     cli
     hlt
 
-
-
-
-
-
-
-
-
-
-_printstr_color:
-    cld ;clear DF flag in FLAGS
-__printstr_color_loop:
-    mov al, [si]
-    inc si
-
-    or al, al ;if al = 0
-    jz __printstr_color_exit ;exit loop
-    push si
-    mov ah, 0x09 ;write character with attribute
-    mov bx, 0x00A0 ;bh page num, bl attribute
-    mov cx, 1 ;number of times to write
-    int 0x10 ;bios call video services
-    
-    mov ah, 0x03 ;read cursor position
-    mov bh, 0x00 ;page num
-    int 0x10
-
-    inc dl ;increment column
-    mov ah, 0x02 ;set cursor position
-    mov bh, 0x00 ;page num
-    int 0x10
-    pop si
-    jmp __printstr_color_loop
-__printstr_color_exit:
-    ret
-
 ;dx*cx is amount of ticks to wait
 _wait_PIT:
     push cx
@@ -388,7 +393,7 @@ _wait_PIT:
 _wait_PIT_once:
     push cx
     call _read_PIT_ticks
-    push bx ;bx = starting count, pushed
+    push bx ;bx = starting count
 _wait_PIT_once_loop:
     call _read_PIT_ticks ;read the count again, store in bx
     ;compute time difference = current count - start count
@@ -402,7 +407,6 @@ _wait_PIT_once_loop:
     pop ax
     pop ax
     ret
-
 
 ;returns PIT ticks stored in bx
 _read_PIT_ticks:
@@ -474,8 +478,11 @@ speaker_off:
     out 0x61, al
     ret
 
+
+
     cli
     hlt
+
 
     msg db 0xD, 0xA
     db 'Press F1 to go into BIOS setup(I think)', 0xD, 0xA
@@ -483,23 +490,195 @@ speaker_off:
     db 'Press F3 to clear screen', 0xD, 0xA
     db 'Press F4 to halt', 0xD, 0xA
     db 'Press F5 for BIOS beep', 0xD, 0xA
-    db 'also virtual piano probably works', 0xD, 0xA
-    
-    
-    db 0
+    db 'Press F6 to enter protected mode', 0xD, 0xA
+    db 0xD, 0xA
+    db 'Virtual piano functions:', 0xD, 0xA
+    db 'Press ', 0x27, ' for lower octave', 0xD, 0xA
+    db 'Press ', 0x22, ' for higher octave', 0xD, 0xA
+    db 'Press ', 0x3B, ' to reset octave', 0xD, 0xA, 0xD, 0xA, 0
 
-    beep_msg db 'oAh', 0xD, 0xA, 0x7, 0
+    boot_pmode_msg db 0xD, 0xA, 'Switching to protected mode!', 0xD, 0xA, 0
+    beep_msg db 'OAH', 0xD, 0xA, 0x7, 0
     oslogo db 0xD, 0xA
-    db ' _   _                  _       ___    ____    _        ___  ', 0xD, 0xA
-    db '| \ | |  _   _    ___  | | __  / _ \  / ___|  / |      / _ \ ', 0xD, 0xA
-    db '|  \| | | | | |  / __| | |/ / | | | | \___ \  | |     | | | |', 0xD, 0xA
-    db '| |\  | | |_| | | (__  |   <  | |_| |  ___) | | |  _  | |_| |', 0xD, 0xA
-    db '|_| \_|  \__,_|  \___| |_|\_\  \___/  |____/  |_| (_)  \___/ ', 0xD, 0xA
+    db ' _   _                  _       ___    ____       _        ___  ', 0xD, 0xA
+    db '| \ | |  _   _    ___  | | __  / _ \  / ___|     / |      / _ \ ', 0xD, 0xA
+    db '|  \| | | | | |  / __| | |/ / | | | | \___ \     | |     | | | |', 0xD, 0xA
+    db '| |\  | | |_| | | (__  |   <  | |_| |  ___) |    | |  _  | |_| |', 0xD, 0xA
+    db '|_| \_|  \__,_|  \___| |_|\_\  \___/  |____/     |_| (_)  \___/ ', 0xD, 0xA
+    db 0xD, 0xA
     db 34, 'operating system of the future ', 34, ' ', 40, 'TM', 41, 0xD, 0xA, 0
 
-    
+    hang_virtual_piano_mode db 0b00
+
+    mode_rst_msg db 'Reset octave', 0xD, 0xA, 0
+    mode_1_msg db 'Low octave', 0xD, 0xA, 0
+    mode_2_msg db 'High octave', 0xD, 0xA, 0
+
+    keylen dw 61
+    keys db '1234567890qwertyuiopasdfghjklzxcvbnm'
+    db '!@$%^*', 40, 'QWETYIOPSDGHJLZCVB'
+
+    notes dw 65, 73, 82, 87, 98, 110, 123
+    dw 131, 147, 164, 174, 196, 220, 246
+    dw 262, 294, 330, 349, 392, 440, 494
+    dw 523, 587, 659, 698, 784, 880, 988
+    dw 1047, 1175, 1319, 1397, 1568, 1760, 1976
+    dw 2093
+
+    dw 69, 78, 92, 104, 117
+    dw 139, 156, 185, 208, 233
+    dw 277, 311, 370, 415, 466
+    dw 554, 622, 740, 831, 932
+    dw 1109, 1245, 1480, 1661, 1865
+
+    notes_low dw 33, 37, 41, 44, 49, 55, 62
+    dw 65, 73, 82, 87, 98, 110, 123
+    dw 131, 147, 164, 174, 196, 220, 246
+    dw 262, 294, 330, 349, 392, 440, 494
+    dw 523, 587, 659, 698, 784, 880, 988
+    dw 1047
+
+    dw 35, 39, 46, 52, 58
+    dw 69, 78, 92, 104, 117
+    dw 139, 156, 185, 208, 233
+    dw 277, 311, 370, 415, 466
+    dw 554, 622, 740, 831, 932
+
+    notes_high dw 131, 147, 164, 174, 196, 220, 246
+    dw 262, 294, 330, 349, 392, 440, 494
+    dw 523, 587, 659, 698, 784, 880, 988
+    dw 1047, 1175, 1319, 1397, 1568, 1760, 1976
+    dw 2093, 2349, 2637, 2794, 3136, 3520, 3951
+    dw 4186
+
+    dw 139, 156, 185, 208, 233
+    dw 277, 311, 370, 415, 466
+    dw 554, 622, 740, 831, 932
+    dw 1109, 1245, 1480, 1661, 1865
+    dw 2217, 2489, 2960, 3322, 3729
 
 
+
+
+
+;code segment descriptor
+;Base            32b: starting location of segment
+;Limit           20b: size of limit
+;Present          1b: Is this segment used/is a valid segment
+;Privilege        2b: (00, 01, 10, 11), 00 is highest privilege
+;Type             1b: 1 if segment is code or data segment
+;Flags(1b):
+;  Type flags(4b):
+;    1. Code? Will segment contain code
+;    2. Conforming: can this code be executed from lower privileged segments
+;            For data segment, this flag becomes direction flag, if direction=1, segment
+;            becomes an expand down segment
+;    3. Readable, can this segment be read?
+;            For data segment, this flag becomes writable flag, if writable=0,
+;            segment becomes read only
+;    4. Accessed: set to 1 when CPU is using the segment
+;  Other flags(4b):
+;    1. Granularity: when it is set to one the limit is multiplied by 0x1000(4096)
+;    2. 32 bits: Is this segment going to use 32 bit memory?
+;    3 & 4: 64 bit tetio, just set to 0
+
+;offset of the segment descriptors relative to the beginning of the GDT
+CODE_SEG equ GDT_code - GDT_start
+DATA_SEG equ GDT_data - GDT_start
+
+GDT_start:
+    GDT_null:
+        dd 0 ;(32 bits)
+        dd 0 ;(32 bits)
+    GDT_code:
+        ;base: 0
+        ;limit: 0xFFFFF
+        ;PPT: 1001
+        ;Type: 1010
+        ;Other: 1100
+
+        ;first 16 bits of limit
+        dw 0xFFFF
+        ;first 24 bits of base
+        dw 0x0000 ;16 bits
+        db 0x00   ; 8 bits
+        ;PPT + Type
+        db 0b10011010
+        ;other + last 4 bits of limit
+        db 0b11001111
+        ;last 8 bits of base
+        db 0b00000000
+    GDT_data:
+        ;base: 0
+        ;limit: 0xFFFFF
+        ;PPT: 1001
+        ;Type: 0010
+        ;Other: 1100
+
+        ;first 16 bits of limit
+        dw 0xFFFF
+        ;first 24 bits of base
+        dw 0x0000 ;16 bits
+        db 0x00   ; 8 bits
+        ;PPT + Type
+        db 0b10010010
+        ;other + last 4 bits of limit
+        db 0b11001111
+        ;last 8 bits of base
+        db 0b00000000
+GDT_end:
+
+GDT_descriptor:
+    ;size of GDT(16 bits)
+    dw GDT_end - GDT_start - 1
+    ;start of GDT(32 bits)
+    dd GDT_start
+
+boot_pmode:
+    xor ax, ax
+    mov ds, ax
+    mov si, boot_pmode_msg
+    call _printstr
+
+    cli
+    lgdt [GDT_descriptor] ;load GDT
+    ;change last bit of cr0 to 1
+    mov eax, cr0
+    or eax, 1
+    mov cr0, eax
+    ;PROTECTED MODE! YIPPEE!
+    ;far jump to code segment
+    jmp CODE_SEG:start_pmode
+
+BITS 32
+start_pmode:
+    ;video memory starts 0xB8000
+    ;first byte character second byte color
+    mov al, 'A'
+    mov ah, 0x0F ;white on black
+    mov [0xB8000], ax
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    jmp $
 
 
 times 10240-($-$$) db 0 ;total length of binary 20 sector
