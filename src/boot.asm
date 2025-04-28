@@ -30,8 +30,6 @@ start_boot:
     mov ah, 0x01 ;ah = 1
     xor cx, cx ;ch = start scanline, cl = end scanline
 
-
-
     ;enable interrupts
     sti
 
@@ -176,7 +174,7 @@ __wait_innerloop:
     db 0xD, 0xA, 0
 
     attempts_msg db 'Attempt '
-    attempt_num db 3
+    attempt_num db 0
     db ' of 8', 0xD, 0xA, 0
 
     startup_msg db 'NuckOS bootloader', 0xD, 0xA, 0
@@ -479,7 +477,6 @@ speaker_off:
     ret
 
 
-
     cli
     hlt
 
@@ -490,14 +487,15 @@ speaker_off:
     db 'Press F3 to clear screen', 0xD, 0xA
     db 'Press F4 to halt', 0xD, 0xA
     db 'Press F5 for BIOS beep', 0xD, 0xA
-    db 'Press F6 to enter protected mode', 0xD, 0xA
+    db 'Press F6 to load kernel and enter protected mode', 0xD, 0xA
     db 0xD, 0xA
     db 'Virtual piano functions:', 0xD, 0xA
     db 'Press ', 0x27, ' for lower octave', 0xD, 0xA
     db 'Press ', 0x22, ' for higher octave', 0xD, 0xA
     db 'Press ', 0x3B, ' to reset octave', 0xD, 0xA, 0xD, 0xA, 0
 
-    boot_pmode_msg db 0xD, 0xA, 'Switching to protected mode!', 0xD, 0xA, 0
+    boot_pmode_msg db 0xD, 0xA, 'loading kernel...', 0xD, 0xA, 0
+    kernel_loaded_msg db 'kernel loaded, switching to protected mode...', 0xD, 0xA, 0
     beep_msg db 'OAH', 0xD, 0xA, 0x7, 0
     oslogo db 0xD, 0xA
     db ' _   _                  _       ___    ____       _        ___  ', 0xD, 0xA
@@ -556,8 +554,6 @@ speaker_off:
     dw 554, 622, 740, 831, 932
     dw 1109, 1245, 1480, 1661, 1865
     dw 2217, 2489, 2960, 3322, 3729
-
-
 
 
 
@@ -634,11 +630,115 @@ GDT_descriptor:
     ;start of GDT(32 bits)
     dd GDT_start
 
+_kernel_load:
+    xor di, di ;counter for retry
+_kernel_load_loop:
+
+    xor ax, ax
+    mov ds, ax
+    mov si, disk_read_msg ;Reading from disk: diskNum
+    call _printstr
+
+    ;Read (al) number of sectors from ch, dh, cl, drive dl, store in es:bx
+    mov ax, 0x0205 ;ah=scancode, Read sectors | al=number of sectors to read
+    mov cx, 0x0015 ;ch=cylinder number CHS | cl=sector number CHS = 21 = 0x15
+    xor dh, dh ;head number CHS
+    mov dl, [diskNum] ;drive number
+    ;Address to store values in: es:bx
+    ;mov bx, KERNEL_LOCATION
+    ;mov es, bx
+    ;xor bx, bx
+    xor bx, bx
+    mov es, bx
+    mov bx, KERNEL_LOCATION
+
+    int 0x13 ;disk read
+    jc __kernel_load_fail
+
+    ;disk read success
+    xor ax, ax
+    mov ds, ax
+    mov si, kernel_load_success
+    call _printstr
+    ret
+
+__kernel_load_fail:
+    ;if number of attempts is over or equal 8
+    cmp di, 8
+    jge __kernel_load_fail_final
+
+    xor ax, ax
+    mov ds, ax
+    mov si, kernel_load_fail
+    call _printstr
+
+    ;attempt to reset disk
+    xor ax, ax ;scancode ah = 0
+    mov dl, [diskNum]
+    int 0x13 ;reset disk system
+
+    inc di
+    ;update number of attempts
+    mov ax, di
+    add ax, '0'
+    mov [attempt_num], al
+
+    xor ax, ax
+    mov ds, ax
+    mov si, attempts_msg
+    call _printstr
+
+    mov cx, 0x2000
+    call _wait
+
+    jmp _kernel_load_loop
+
+__kernel_load_fail_final:
+    xor ax, ax
+    mov ds, ax
+    mov si, kernel_load_fail_final
+    call _printstr
+    pop ax
+    jmp hang  ;go back to 16 bit hang loop if fail
+
+    cli
+    hlt
+
+    kernel_load_fail db 'Kernel load failure, resetting...', 0xD, 0xA, 0
+    kernel_load_fail_final db 'Kernel load failed, going back to real mode...', 0xD, 0xA, 0
+    kernel_load_success db 'Kernel load success', 0xD, 0xA, 0
+
+KERNEL_LOCATION equ 0x1000
+
 boot_pmode:
     xor ax, ax
     mov ds, ax
     mov si, boot_pmode_msg
     call _printstr
+
+    call _kernel_load
+
+    xor ax, ax
+    mov ds, ax
+    mov si, kernel_loaded_msg
+    call _printstr
+
+    mov cx, 0x0A00
+    call _wait
+
+    mov cx, 50
+clear_loop:
+    mov ax, 0x0E0D
+    int 0x10
+    mov ax, 0x0E0A
+    int 0x10
+    loop clear_loop
+
+    ;disable cursor
+    mov ah, 0x01
+    mov cx, 0x2000 ;disable cursor
+    int 0x10    ;int 0x10, 1: set cursor type
+
 
     cli
     lgdt [GDT_descriptor] ;load GDT
@@ -646,40 +746,24 @@ boot_pmode:
     mov eax, cr0
     or eax, 1
     mov cr0, eax
-    ;PROTECTED MODE! YIPPEE!
+    ;PROTECTED MODE!
     ;far jump to code segment
     jmp CODE_SEG:start_pmode
 
 BITS 32
 start_pmode:
-    ;video memory starts 0xB8000
-    ;first byte character second byte color
-    mov al, 'A'
-    mov ah, 0x0F ;white on black
-    mov [0xB8000], ax
+    mov ax, DATA_SEG ;setup segments
+    mov ds, ax
+    mov ss, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ebp, 0x90000 ;stack
+    mov esp, ebp
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    ;jump to loaded kernel
+    jmp 0x1000
     jmp $
 
-
 times 10240-($-$$) db 0 ;total length of binary 20 sector
-                        ;total length of disk 22 sectors, 1:code, 2-3:partition info 4-10:code
+                        ;total length of disk 22 sectors, 1:code, 2-3:partition info 4-10:codedb 0x69

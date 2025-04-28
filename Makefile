@@ -1,14 +1,21 @@
-.PHONY: build src test
+.PHONY: build src
 
 DEVICE ?= /dev/sda
 LO_DEVICE := $(shell sudo losetup -f)
-TARGET ?= src/boot.asm
-OUT ?= 
-
-test: clean build mkimg qemu
 
 build:
-	nasm $(TARGET) -f bin -o build/boot.bin
+	nasm src/boot.asm -f bin -o build/boot.bin
+	
+	i686-elf-gcc -ffreestanding -m32 -masm=intel -g -I include/ -c src/kernel.c -o build/kernel.o
+	nasm src/kernel_entry.asm -f elf -o build/kernel_entry.o
+	i686-elf-ld -o build/full-kernel.bin -Ttext 0x1000 build/kernel_entry.o build/kernel.o --oformat binary 
+
+	cat build/boot.bin build/full-kernel.bin > build/nuckos.bin
+
+	#rm build/boot.bin
+	#rm build/kernel.o
+	#rm build/kernel_entry.o
+	#rm build/full-kernel.bin
 
 mkimg:
 	#fill boot.dd with 264192 sectors zeroes:
@@ -38,23 +45,21 @@ mkimg:
 	sudo sync
 
 mk:
-	#create MBR table and do partitioning
-	#echo -e "o\nn\np\n1\n1\n\nt 1\nb\na\nw\n" | sudo fdisk build/boot.dd
 
 	#60 MiB + 2048 sectors
-	sudo dd if=/dev/zero of=build/boot.dd bs=512 count=124928
-	sudo chmod 644 build/boot.dd
-	sudo chown mythsnipper:mythsnipper build/boot.dd
+	sudo dd if=/dev/zero of=build/nuckos.dd bs=512 count=124928
+	sudo chmod 644 build/nuckos.dd
+	sudo chown mythsnipper:mythsnipper build/nuckos.dd
 
-	sudo dd if=build/boot.bin of=build/boot.dd
+	sudo dd conv=notrunc if=build/nuckos.bin of=build/nuckos.dd
 
-cpimg:
+cp:
 	lsblk
-	sudo dd if=build/boot.dd of=$(DEVICE) bs=5MiB
+	sudo dd if=build/nuckos.dd of=$(DEVICE) bs=5MiB
 	sudo sync
 
 qemu:
-	sudo qemu-system-x86_64 -drive format=raw,file=build/boot.dd -smp 1 -m 1G
+	sudo qemu-system-x86_64 -drive format=raw,file=build/nuckos.dd -smp 1 -m 1G
 	
 clean:
 	sudo rm -f build/*
