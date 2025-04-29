@@ -1,21 +1,34 @@
 .PHONY: build src
 
+
+
+
+
+CC = i686-elf-gcc
+LD = i686-elf-ld
+AS = nasm
+CFLAGS = -ffreestanding -nostdlib -m32 -masm=intel -g -I include/
+LDFLAGS = -Ttext 0xffff --oformat binary
+
 DEVICE ?= /dev/sda
 LO_DEVICE := $(shell sudo losetup -f)
 
 build:
-	nasm src/boot.asm -f bin -o build/boot.bin
-	
-	i686-elf-gcc -ffreestanding -m32 -masm=intel -g -I include/ -c src/kernel.c -o build/kernel.o
-	nasm src/kernel_entry.asm -f elf -o build/kernel_entry.o
-	i686-elf-ld -o build/full-kernel.bin -Ttext 0x1000 build/kernel_entry.o build/kernel.o --oformat binary 
+	#nuckBoot
+	$(AS) src/boot.asm -f bin -o build/boot.bin
+
+	#kernel entry
+	$(AS) src/kernel_entry.asm -f elf -o build/kernel_entry.o 
+
+	#kernel C files
+	$(CC) $(CFLAGS) -c src/kernel.c -o build/kernel.o 
+	$(CC) $(CFLAGS) -c src/loadIDT.c -o build/loadIDT.o
+
+	$(LD) $(LDFLAGS) build/kernel_entry.o build/kernel.o build/loadIDT.o -o build/full-kernel.bin 
 
 	cat build/boot.bin build/full-kernel.bin > build/nuckos.bin
 
-	#rm build/boot.bin
-	#rm build/kernel.o
-	#rm build/kernel_entry.o
-	#rm build/full-kernel.bin
+	rm build/kernel_entry.o build/kernel.o build/loadIDT.o build/full-kernel.bin build/boot.bin
 
 mkimg:
 	#fill boot.dd with 264192 sectors zeroes:

@@ -630,6 +630,9 @@ GDT_descriptor:
     ;start of GDT(32 bits)
     dd GDT_start
 
+
+
+
 _kernel_load:
     xor di, di ;counter for retry
 _kernel_load_loop:
@@ -708,7 +711,7 @@ __kernel_load_fail_final:
     kernel_load_fail_final db 'Kernel load failed, going back to real mode...', 0xD, 0xA, 0
     kernel_load_success db 'Kernel load success', 0xD, 0xA, 0
 
-KERNEL_LOCATION equ 0x1000
+KERNEL_LOCATION equ 0xffff
 
 boot_pmode:
     xor ax, ax
@@ -748,10 +751,21 @@ clear_loop:
     mov cr0, eax
     ;PROTECTED MODE!
     ;far jump to code segment
-    jmp CODE_SEG:start_pmode
+    jmp CODE_SEG:pmode
+
+
+
+
+
+
+
+
+
+
+
 
 BITS 32
-start_pmode:
+pmode:
     mov ax, DATA_SEG ;setup segments
     mov ds, ax
     mov ss, ax
@@ -761,9 +775,47 @@ start_pmode:
     mov ebp, 0x90000 ;stack
     mov esp, ebp
 
+    ;load IDT
+    lidt [IDT_descriptor]
+
     ;jump to loaded kernel
-    jmp 0x1000
+    jmp 0xffff
     jmp $
+
+
+;total of 256 entries, each entry 64b
+; entry:
+; offset(low)(16b), address of the interrupt service routine
+; segment selector(16b), must point to valid code segment in GDT
+; reserved(8b)
+; gate type(4b): define type of gate it represents
+;   0x5: task gate, in this case, offset value is unused and should be set to 0
+;   0x6: 16bit interrupt gate
+;   0x7: 16bit trap gate
+;   0xE: 32bit interrupt gate
+;   0xF: 32bit trap gate
+; reserved(1b): 0
+; DPL(2b): what ring is allowed to use this interrupt, hardware interrupts bypass this
+; Present bit(1b): 1 if interrupt descriptor is valid
+; offset(high)(16b), address of interrupt service routine
+
+IDT_start:
+    ;entry 0
+    IDT_entry_0:
+    dw 0 ;offset low
+    dw CODE_SEG ;segment selector
+    db 0 ;reserved
+    db 0b10001110 ;present, ring 0, 0, 32bit int gate
+    dw 0 ;offset high
+
+    times 255 dq 0
+IDT_end:
+
+IDT_descriptor:
+    ;size of IDT(16 bits)
+    dw IDT_end - IDT_start - 1
+    ;start of IDT(32 bits)
+    dd IDT_start
 
 times 10240-($-$$) db 0 ;total length of binary 20 sector
                         ;total length of disk 22 sectors, 1:code, 2-3:partition info 4-10:codedb 0x69

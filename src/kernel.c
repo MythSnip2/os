@@ -1,22 +1,27 @@
 #include <nuck_stddef.h>
 
 
+volatile uint32_t PIT_ticks = 0;
+void PIT_isr_handler() {
+    PIT_ticks++;
+    outb(0x20, 0x20); // Send End of Interrupt to PIC
+}
+void PIT_init(uint32_t frequency) {
+    uint32_t divisor = 1193182 / frequency;
 
-static inline void outb(unsigned short port, unsigned char val){
-    __asm__ __volatile__ (
-        "out dx, al" 
-        :
-        :"d"(port), "a"(val)
-    );
+    outb(0x43, 0x36); // Channel 0, Access mode: lobyte/hibyte, Mode 3
+    outb(0x40, divisor & 0xFF);
+    outb(0x40, (divisor >> 8) & 0xFF);
 }
-static inline unsigned char inb(unsigned short port){
-    unsigned char ret;
-    __asm__ __volatile__ (
-        "in al, dx" 
-        :"=a"(ret)
-        :"d"(port)
-    );
+void PIT_wait_ticks(uint32_t ticks_to_wait) {
+    uint32_t start_tick = PIT_ticks;
+    while ((PIT_ticks - start_tick) < ticks_to_wait) {
+        __asm__ __volatile__("hlt");
+    }
 }
+
+
+
 void VGAwriteChar_addr(int addr, char c, unsigned char VGAColor){
     int location = 0xb8000 + addr*2;
     *(char*)location = c;
@@ -64,23 +69,35 @@ void VGAdrawRect(int x1, int y1, int x2, int y2, char c, bool fill, unsigned cha
     }
 }
 
+
 void pong_game(){
-    unsigned char VGAColor = 0x0C;
+    unsigned char VGAColor = 0;
     int x = 0;
     int y = 0;
 
-
-    VGAdrawRect(0, 0, 79, 24, 'O', false, VGAColor);
-    VGAColor = 0x0E;
-    VGAdrawRect(1, 1, 78, 23, 'A', false, VGAColor);
-    VGAColor = 0x0A;
-    VGAdrawRect(2, 2, 77, 22, 'H', false, VGAColor);
-
+    VGAColor = 0xCC;
+    VGAdrawRect(0, 0, 79, 24, '.', false, VGAColor);
+    VGAColor = 0xEE;
+    VGAdrawRect(1, 1, 78, 23, '.', false, VGAColor);
+    
+    VGAColor = 0xAA;
+    VGAdrawRect(2, 2, 77, 22, '.', false, VGAColor);
+    VGAColor = 0xBB;
+    VGAdrawRect(3, 3, 76, 21, '.', false, VGAColor);
+    VGAColor = 0x99;
+    VGAdrawRect(4, 4, 75, 20, '.', false, VGAColor);
+    VGAColor = 0xDD;
+    VGAdrawRect(5, 5, 74, 19, '.', false, VGAColor);
+    VGAColor = 0xFF;
+    VGAdrawRect(6, 6, 73, 18, '.', false, VGAColor);
+    VGAColor = 0x88;
+    VGAdrawRect(7, 7, 72, 17, '.', false, VGAColor);
 
 }
 
 
 void main(){
+
     pong_game();
 
     return;
