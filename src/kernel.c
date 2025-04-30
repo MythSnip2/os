@@ -1,7 +1,30 @@
 #include <nuck_stddef.h>
 
 
-volatile uint32_t PIT_ticks = 0;
+
+static inline void outb(unsigned short port, unsigned char val){
+    __asm__ __volatile__ (
+        "out dx, al" 
+        :
+        :"d"(port), "a"(val)
+    );
+}
+static inline unsigned char inb(unsigned short port){
+    unsigned char ret;
+    __asm__ __volatile__ (
+        "in al, dx" 
+        :"=a"(ret)
+        :"d"(port)
+    );
+    return ret;
+}
+static inline void io_wait(){
+    outb(0x80, 0);
+}
+
+
+
+static volatile uint32_t PIT_ticks = 0;
 void PIT_isr_handler() {
     PIT_ticks++;
     outb(0x20, 0x20); // Send End of Interrupt to PIC
@@ -21,13 +44,12 @@ void PIT_wait_ticks(uint32_t ticks_to_wait) {
 }
 
 
-
-void VGAwriteChar_addr(int addr, char c, unsigned char VGAColor){
+void VGATextWriteChar_addr(int addr, char c, unsigned char VGAColor){
     int location = 0xb8000 + addr*2;
     *(char*)location = c;
     *(char*)(location+1) = VGAColor;
 }
-void VGAwriteChar(int x, int y, char c, unsigned char VGAColor){
+void VGATextWriteChar(int x, int y, char c, unsigned char VGAColor){
     int location = 0xb8000 + (y*80+x)*2;
     *(char*)location = c;
     *(char*)(location+1) = VGAColor;
@@ -38,12 +60,12 @@ void VGAprintString(int addr, char* str, unsigned char VGAColor){
             addr = ((addr+79)/80)*80;
             str++;
         }
-        VGAwriteChar_addr(addr, *str, VGAColor);
+        VGATextWriteChar_addr(addr, *str, VGAColor);
         addr++;
         str++;
     }
 }
-void VGAdrawRect(int x1, int y1, int x2, int y2, char c, bool fill, unsigned char VGAColor){
+void VGATextDrawRect(int x1, int y1, int x2, int y2, char c, bool fill, unsigned char VGAColor){
     //convert x, y to memory address
     int xmax = ((x1 > x2) ? x1 : x2);
     int xmin = ((x1 > x2) ? x2 : x1);
@@ -52,46 +74,77 @@ void VGAdrawRect(int x1, int y1, int x2, int y2, char c, bool fill, unsigned cha
 
     if(!fill){
         for(int x = xmin;x <= xmax;x++){
-            VGAwriteChar(x, ymin, c, VGAColor);
-            VGAwriteChar(x, ymax, c, VGAColor);
+            VGATextWriteChar(x, ymin, c, VGAColor);
+            VGATextWriteChar(x, ymax, c, VGAColor);
         }
         for(int y = ymin;y <= ymax;y++){
-            VGAwriteChar(xmin, y, c, VGAColor);
-            VGAwriteChar(xmax, y, c, VGAColor);
+            VGATextWriteChar(xmin, y, c, VGAColor);
+            VGATextWriteChar(xmax, y, c, VGAColor);
         }
     }
     else{
         for(int x = xmin;x <= xmax;x++){
             for(int y = ymin;y <= ymax;y++){
-                VGAwriteChar(x, y, c, VGAColor);
+                VGATextWriteChar(x, y, c, VGAColor);
             }
         }
     }
 }
 
+static inline void VGASetPlane(uint8_t plane) {
+    outb(0x3C4, 0x02);              // Select Map Mask register
+    outb(0x3C5, 1 << plane);        // Enable write to one plane
+}
+
+static inline void VGAPutPixel(int x, int y, unsigned char color) {
+    unsigned char* vram = (unsigned char*) 0xA0000;
+    int offset = (y * 80) + (x / 8);
+    int bit = 7 - (x % 8); // VGA pixels are packed MSB first in each byte
+
+    for(int plane = 0; plane < 4; plane++) {
+        VGASetPlane(plane);
+        unsigned char* addr = vram + offset;
+        uint8_t bit_val = (color >> plane) & 1;
+        
+        unsigned char o = *addr;
+        if (bit_val){
+            *addr |= (1 << bit);
+        }
+        else{
+            *addr &= ~(1 << bit);
+        }
+    }
+}
+
+void VGADrawRect(int x1, int y1, int x2, int y2, bool fill, unsigned char VGAColor){
+    //convert x, y to memory address
+    int xmax = ((x1 > x2) ? x1 : x2);
+    int xmin = ((x1 > x2) ? x2 : x1);
+    int ymax = ((y1 > y2) ? y1 : y2);
+    int ymin = ((y1 > y2) ? y2 : y1);
+
+    if(!fill){
+        for(int x = xmin;x <= xmax;x++){
+            VGAPutPixel(x, ymin, VGAColor);
+            VGAPutPixel(x, ymax, VGAColor);
+        }
+        for(int y = ymin;y <= ymax;y++){
+            VGAPutPixel(xmin, y, VGAColor);
+            VGAPutPixel(xmax, y, VGAColor);
+        }
+    }
+    else{
+        for(int x = xmin;x <= xmax;x++){
+            for(int y = ymin;y <= ymax;y++){
+                VGAPutPixel(x, y, VGAColor);
+            }
+        }
+    }
+}
 
 void pong_game(){
-    unsigned char VGAColor = 0;
-    int x = 0;
-    int y = 0;
+    VGADrawRect(0, 0, 639, 479, true, 0x3);
 
-    VGAColor = 0xCC;
-    VGAdrawRect(0, 0, 79, 24, '.', false, VGAColor);
-    VGAColor = 0xEE;
-    VGAdrawRect(1, 1, 78, 23, '.', false, VGAColor);
-    
-    VGAColor = 0xAA;
-    VGAdrawRect(2, 2, 77, 22, '.', false, VGAColor);
-    VGAColor = 0xBB;
-    VGAdrawRect(3, 3, 76, 21, '.', false, VGAColor);
-    VGAColor = 0x99;
-    VGAdrawRect(4, 4, 75, 20, '.', false, VGAColor);
-    VGAColor = 0xDD;
-    VGAdrawRect(5, 5, 74, 19, '.', false, VGAColor);
-    VGAColor = 0xFF;
-    VGAdrawRect(6, 6, 73, 18, '.', false, VGAColor);
-    VGAColor = 0x88;
-    VGAdrawRect(7, 7, 72, 17, '.', false, VGAColor);
 
 }
 

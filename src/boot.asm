@@ -23,9 +23,11 @@ start_boot:
     mov ss, ax
     mov sp, 0x7C00 ;stack grows below bootloader
 
-    ;set video mode to text mode(8x25)
+    ;set video mode to text mode(80x25)
     mov ax, 0x0003 ;ah = 0(function code), al = video mode flag
     int 0x10 ;bios call video services
+
+
     ;enable cursor
     mov ah, 0x01 ;ah = 1
     xor cx, cx ;ch = start scanline, cl = end scanline
@@ -643,7 +645,7 @@ _kernel_load_loop:
     call _printstr
 
     ;Read (al) number of sectors from ch, dh, cl, drive dl, store in es:bx
-    mov ax, 0x0205 ;ah=scancode, Read sectors | al=number of sectors to read
+    mov ax, 0x0220 ;ah=scancode, Read sectors | al=number of sectors to read
     mov cx, 0x0015 ;ch=cylinder number CHS | cl=sector number CHS = 21 = 0x15
     xor dh, dh ;head number CHS
     mov dl, [diskNum] ;drive number
@@ -726,7 +728,7 @@ boot_pmode:
     mov si, kernel_loaded_msg
     call _printstr
 
-    mov cx, 0x0A00
+    mov cx, 0xA000
     call _wait
 
     mov cx, 50
@@ -742,6 +744,10 @@ clear_loop:
     mov cx, 0x2000 ;disable cursor
     int 0x10    ;int 0x10, 1: set cursor type
 
+    ;set new graphics mode
+    ;VGA 640x480 16 color
+    mov ax, 0x0012 ;ah = 0(function code), al = video mode flag
+    int 0x10 ;bios call video services
 
     cli
     lgdt [GDT_descriptor] ;load GDT
@@ -775,47 +781,10 @@ pmode:
     mov ebp, 0x90000 ;stack
     mov esp, ebp
 
-    ;load IDT
-    lidt [IDT_descriptor]
-
     ;jump to loaded kernel
     jmp 0xffff
     jmp $
 
-
-;total of 256 entries, each entry 64b
-; entry:
-; offset(low)(16b), address of the interrupt service routine
-; segment selector(16b), must point to valid code segment in GDT
-; reserved(8b)
-; gate type(4b): define type of gate it represents
-;   0x5: task gate, in this case, offset value is unused and should be set to 0
-;   0x6: 16bit interrupt gate
-;   0x7: 16bit trap gate
-;   0xE: 32bit interrupt gate
-;   0xF: 32bit trap gate
-; reserved(1b): 0
-; DPL(2b): what ring is allowed to use this interrupt, hardware interrupts bypass this
-; Present bit(1b): 1 if interrupt descriptor is valid
-; offset(high)(16b), address of interrupt service routine
-
-IDT_start:
-    ;entry 0
-    IDT_entry_0:
-    dw 0 ;offset low
-    dw CODE_SEG ;segment selector
-    db 0 ;reserved
-    db 0b10001110 ;present, ring 0, 0, 32bit int gate
-    dw 0 ;offset high
-
-    times 255 dq 0
-IDT_end:
-
-IDT_descriptor:
-    ;size of IDT(16 bits)
-    dw IDT_end - IDT_start - 1
-    ;start of IDT(32 bits)
-    dd IDT_start
 
 times 10240-($-$$) db 0 ;total length of binary 20 sector
                         ;total length of disk 22 sectors, 1:code, 2-3:partition info 4-10:codedb 0x69

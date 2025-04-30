@@ -22,25 +22,12 @@ typedef unsigned int uint32_t;
 
 
 
-static inline void outb(unsigned short port, unsigned char val){
-    __asm__ __volatile__ (
-        "out dx, al" 
-        :
-        :"d"(port), "a"(val)
-    );
-}
-static inline unsigned char inb(unsigned short port){
-    unsigned char ret;
-    __asm__ __volatile__ (
-        "in al, dx" 
-        :"=a"(ret)
-        :"d"(port)
-    );
-    return ret;
-}
-static inline void io_wait(){
-    outb(0x80, 0);
-}
+
+
+
+
+
+
 
 
 
