@@ -8,17 +8,17 @@ CC = i686-elf-gcc
 LD = i686-elf-ld
 AS = nasm
 CFLAGS = -ffreestanding -nostdlib -m32 -masm=intel -g -I include/
-LDFLAGS = -Ttext 0xffff --oformat binary
+LDFLAGS = -Ttext 0x10000 --oformat binary
 
 DEVICE ?= /dev/sda
 LO_DEVICE := $(shell sudo losetup -f)
 
 build:
 	#nuckBoot
-	$(AS) src/boot.asm -f bin -o build/boot.bin
+	$(AS) src/boot.asm -f bin -o build/boot.bin -l build/boot.l
 
 	#kernel entry
-	$(AS) src/kernel_entry.asm -f elf -o build/kernel_entry.o 
+	$(AS) src/kernel_entry.asm -f elf -o build/kernel_entry.o -l build/kernel_entry.l
 
 	#kernel C files
 	$(CC) $(CFLAGS) -c src/kernel.c -o build/kernel.o 

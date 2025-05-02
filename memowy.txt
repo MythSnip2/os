@@ -1,0 +1,39 @@
+
+
+
+Unusable in real mode:
+0x0000 - 0x03FF    IVT
+0x0400 - 0x04FF    BDA/BIOS data area
+
+Usable memory:
+0x0500 - 0x7BFF    conventional memory
+0x7C00 - 0x7DFF    boot sector
+0x07E00 - 0x7FFFF  conventional memory
+
+partially used by EBDA(extended BDA):
+0x80000 - 0x9FFFF  EBDA
+
+hardware mapped:
+0xA0000 - 0xBFFFF  VRAM
+
+ROM and hardware mapped/shadow RAM:
+0xC0000 - 0xC7FFF  Video BIOS
+0xC8000 - 0xEFFFF  BIOS expansions
+0xF0000 - 0xFFFFF  Motherboard BIOS
+
+
+
+
+NUCK OS
+0x7BFF - 0x0500   NuckBoot stack
+0x7C00 - 0x7DFF   NuckBootBoot
+0x7E00 - 0xA3FF   NuckBootLoader
+0x10000 - 0x20000 Nuck OS Kernel
+      <-- 0x7FFFF Nuck OS stack
+
+
+
+
+
+
+
