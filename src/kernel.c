@@ -1,5 +1,5 @@
 #include <nuck_stddef.h>
-
+#include <nuck_VBE.h>
 
 
 static inline void outb(unsigned short port, unsigned char val){
@@ -35,7 +35,7 @@ void VGATextWriteChar(int x, int y, char c, unsigned char VGAColor){
     *(char*)(location+1) = VGAColor;
 }
 void VGAprintString(int addr, char* str, unsigned char VGAColor){
-    while(*str != cap){
+    while(*str != false){
         if(*str == 0xA){
             addr = ((addr+79)/80)*80;
             str++;
@@ -138,15 +138,20 @@ void VGADrawRect(int x1, int y1, int x2, int y2, bool fill, unsigned char VGACol
 }
 
 
-void pong_game(){
-
-
-}
-
 
 void main(){
 
-    pong_game();
+    struct VBE_info_block* VBEControllerInfo = (struct VBE_info_block*)(0x7C00 + 0xD51); //Fixed address
+    struct VBE_mode_info_block* VBEModeInfo = (struct VBE_mode_info_block*)(0x7C00 + 0xF51); //Fixed address
+    char* vram = (char*)((uintptr_t)VBEModeInfo->framebuffer);
+
+    for (int i = 0; i < 1000; i++) {
+        vram[i * 3 + 0] = 0x00; // Blue
+        vram[i * 3 + 1] = 0x00; // Green
+        vram[i * 3 + 2] = 0xFF; // Red -> bright red pixel
+    }
+
+    VGATextWriteChar_addr(2, 'A', 0x0A);
 
     return;
 }

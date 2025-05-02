@@ -28,11 +28,6 @@ start_boot:
     int 0x10 ;bios call video services
 
 
-    ;enable cursor
-    mov ah, 0x01 ;ah = 1
-    xor cx, cx ;ch = start scanline, cl = end scanline
-    int 0x10
-
     ;enable interrupts
     sti
 
@@ -592,9 +587,7 @@ print_al_loop2:
     db 'F6: load kernel and enter protected mode', 0xD, 0xA
     db 'F7: reload NuckBoot from boot device', 0xD, 0xA
     db '    Virtual piano:', 0xD, 0xA
-    db 'Press ', 0x27, ' for lower octave', 0xD, 0xA
-    db 'Press ', 0x22, ' for higher octave', 0xD, 0xA
-    db 'Press ', 0x3B, ' to reset octave', 0xD, 0xA, 0xD, 0xA, 0
+    db 'Press ', 0x27, ' for lower octave, Press ', 0x22, ' for higher octave, Press ', 0x3B, ' to reset octave', 0xD, 0xA, 0
 
     boot_pmode_msg db 0xD, 0xA, 'loading kernel...', 0xD, 0xA, 0
     kernel_loaded_msg db 'kernel loaded, switching to protected mode...', 0xD, 0xA, 0
@@ -670,6 +663,8 @@ print_al_loop2:
 
     VBEStuff_iter_modes_not_found_msg db "VBE Video mode 0b00000001 00011011 not found! (1280x1024 8:8:8)", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
     VBEStuff_iter_modes_found_msg db "VBE Video mode (1280x1024 8:8:8) found!", 0xD, 0xA, 0
+    VBEStuff_mode_info_fail_msg db "VBE get mode info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
+    VBEStuff_set_video_mode_fail db "VBE set video mode fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
 
 
 ; TOTAL of 512 bytes
@@ -795,7 +790,6 @@ GDT_start:
         ;last 8 bits of base
         db 0b00000000
 GDT_end:
-
 GDT_descriptor:
     ;size of GDT(16 bits)
     dw GDT_end - GDT_start - 1
@@ -871,8 +865,10 @@ __kernel_load_fail_final:
     pop ax
     jmp hang  ;go back to 16 bit hang loop if fail
 
-    cli
-    hlt
+
+
+
+
 
 VBEStuff:
     xor ax, ax
@@ -952,7 +948,7 @@ VBEStuff_iter_modes_loop:
     mov ax, es:[si]
     ;now print mode in text form
     call print_VBE_mode_text
-    ;check if mode numnber is the GOOD one(1280x1024 8:8:8)
+    ;check if mode number is the GOOD one(1280x1024 8:8:8)
     cmp ax, 0x011B
     je VBEStuff_iter_modes_found
 
@@ -986,6 +982,16 @@ VBEStuff_iter_modes_exit:
     xor ax, ax
     int 0x16 ;keyboard services
     jmp biosboot_pc
+VBEStuff_get_mode_info_fail:
+    xor ax, ax
+    mov ds, ax
+    mov si, VBEStuff_mode_info_fail_msg
+    call _printstr
+    ;blocking keyboard input
+    xor ax, ax
+    int 0x16 ;keyboard services
+    jmp biosboot_pc
+
 
 VBEStuff_iter_modes_found:
     ;found
@@ -997,24 +1003,41 @@ VBEStuff_iter_modes_found:
     mov cx, 0x2000
     call _wait
     
-    mov ax, [VBE_mode_info_block_window_size]
-    call print_ax
-
+    
     ;continue execution, get mode info
     mov ax, 0x4F01 ;scancode
     mov cx, 0x011B ;THE good mode
     ;es:di = 256b buffer
-    xor ax, ax
-    mov es, ax
+    xor dx, dx
+    mov es, dx
     mov di, VBE_mode_info_block_start
     int 0x10
+    cmp ax, 0x004F
+    jne VBEStuff_get_mode_info_fail
+
+    
+    mov cx, 0x2000
+    call _wait
 
     ;set video mode
     mov ax, 0x4F02 ;scancode
     mov bx, 0x011B ;bx = mode number
     or bx, 0x4000 ;use linear framebuffer
     int 0x10
+    cmp ax, 0x004F
+    jne VBEStuff_set_video_mode_fail
+
     ret
+
+
+
+
+
+
+
+
+
+
 
 print_VBE_mode_text:
     pusha
@@ -1132,12 +1155,12 @@ clear_loop:
 
     ;Mode 3h
     ;VGA 80x25 text mode
-    ;mov ax, 0x0003 ;ah = 0(function code), al = video mode flag
-    ;int 0x10 ;bios call video services
+    mov ax, 0x0003 ;ah = 0(function code), al = video mode flag
+    int 0x10 ;bios call video services
     ;disable cursor
-    ;mov ah, 0x01
-    ;mov cx, 0x2000 ;disable cursor
-    ;int 0x10    ;int 0x10, 1: set cursor type
+    mov ah, 0x01
+    mov cx, 0x2000 ;disable cursor
+    int 0x10    ;int 0x10, 1: set cursor type
 
     ;Mode 12h
     ;VGA 640x480 16 color
@@ -1145,9 +1168,9 @@ clear_loop:
     ;int 0x10 ;bios call video services
 
     ;VBE graphics
-    call VBEStuff
-
     cli
+    call VBEStuff
+    
     lgdt [GDT_descriptor] ;load GDT
     ;change last bit of cr0 to 1
     mov eax, cr0
@@ -1159,6 +1182,7 @@ clear_loop:
 
 BITS 32
 pmode:
+    jmp $
     mov ax, DATA_SEG ;setup segments
     mov ds, ax
     mov ss, ax

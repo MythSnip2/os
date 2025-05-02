@@ -20,25 +20,7 @@ typedef unsigned short uint16_t;
 typedef signed int int32_t;
 typedef unsigned int uint32_t;
 
-
-
-
-
-
-
-
-
-
-
-
-
 #define JA 1
 #define NEIN 0
-
-#define YUHUH 1
-#define NUHUH 0
-
-#define nocap 1
-#define cap 0
 
 #endif
