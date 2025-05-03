@@ -151,7 +151,9 @@ void main(){
         vram[i * 3 + 2] = 0xFF; // Red -> bright red pixel
     }
 
-    VGATextWriteChar_addr(2, 'A', 0x0A);
+    VGATextWriteChar_addr(2, 'O', 0x0A);
+    VGATextWriteChar_addr(3, 'A', 0x0A);
+    VGATextWriteChar_addr(4, 'H', 0x0A);
 
     return;
 }

@@ -15,6 +15,7 @@ start_boot:
     xor ax, ax
     mov ds, ax
     mov es, ax
+    mov fs, ax
 
     ;save the disk number
     mov [diskNum], dl
@@ -545,7 +546,6 @@ print_ax_loop2:
     popa
     ret
 
-
 print_al:
     pusha
 
@@ -576,6 +576,51 @@ print_al_loop2:
     loop print_al_loop2
     popa
     ret
+
+
+;print value of ax in decimal
+print_ax_decimal:
+    pusha
+    ;push 0 for print function to end
+    xor bx, bx
+    push bx
+    ;if ax is already zero, just print a 0
+    or ax, ax
+    jz print_ax_decimal_zero
+print_ax_decimal_loop:
+    or ax, ax
+    jz print_ax_decimal_printloop
+    xor dx, dx
+    mov bx, 10
+    ;16 bit division, dx:ax / bx = ax, remainder dx
+    div bx
+    ;push remainder in ascii
+    add dx, '0'
+    push dx
+    ;loop
+    jmp print_ax_decimal_loop
+print_ax_decimal_printloop:
+    ;print digits pushed on the stack
+    pop ax
+    ;if popped value is 0, exit
+    or ax, ax
+    jz print_ax_decimal_end
+    ;print value
+    mov ah, 0xE
+    int 0x10
+    jmp print_ax_decimal_printloop
+print_ax_decimal_zero:
+    pop bx
+    mov ah, 0xE
+    mov al, '0'
+    int 0x10
+print_ax_decimal_end:
+    popa
+    ret
+
+
+
+
 
 
     msg db 0xD, 0xA
@@ -654,72 +699,7 @@ print_al_loop2:
     kernel_load_fail_final db 'Kernel load failed, going back to real mode...', 0xD, 0xA, 0
     kernel_load_success db 'Kernel load success', 0xD, 0xA, 0
 
-    VBEStuff_get_controller_info_success_msg db "VBE get controller info success!", 0xD, 0xA, 0
-    VBEStuff_get_controller_info_fail_msg db "VBE get controller info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
 
-    VBEStuff_get_controller_info_print_msg db "VBE controller info:", 0xD, 0xA, 0
-    VBEStuff_get_controller_info_print_msg1 db 0xD, 0xA, "Total memory(64KB blocks): ", 0
-    VBEStuff_get_controller_info_print_msg2 db 0xD, 0xA, "Video modes ptr(seg:off): ", 0
-
-    VBEStuff_iter_modes_not_found_msg db "VBE Video mode 0b00000001 00011011 not found! (1280x1024 8:8:8)", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
-    VBEStuff_iter_modes_found_msg db "VBE Video mode (1280x1024 8:8:8) found!", 0xD, 0xA, 0
-    VBEStuff_mode_info_fail_msg db "VBE get mode info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
-    VBEStuff_set_video_mode_fail db "VBE set video mode fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
-
-
-; TOTAL of 512 bytes
-VBE_info_block_start:
-    VBE_info_block_signature db 'NEIN'
-    VBE_info_block_version dw 0
-    VBE_info_block_OEM_name_ptr dd 0 ;far ptr 32b
-    VBE_info_block_capabilities dd 0
-    VBE_info_block_video_mode_offset dw 0
-    VBE_info_block_video_mode_segment dw 0
-    VBE_info_block_total_memory dw 0 ;count of 64k blocks
-    times 492 db 0 ;reserved
-VBE_info_block_end:
-
-; TOTAL of 256 bytes
-VBE_mode_info_block_start:
-    VBE_mode_info_block_attributes dw 0 ;deprecated, if bit 7 is 1 supports a linear frame buffer
-    VBE_mode_info_block_window_a db 0 ;deprecated
-    VBE_mode_info_block_window_b db 0 ;deprecated
-    VBE_mode_info_block_granularity dw 0 ;in KB, deprecated
-    VBE_mode_info_block_window_size dw 0 ;in KB
-    VBE_mode_info_block_segment_a dw 0 ;0 if not supported
-    VBE_mode_info_block_segment_b dw 0 ;0 if not supported
-    VBE_mode_info_block_win_func_ptr dd 0  ;deprecated, used to switch banks in pmode without going to real
-    VBE_mode_info_block_pitch dw 0 ;bytes of vram to skip to go down a line
-
-    VBE_mode_info_block_width dw 0 ;in pixels(graphics)/columns(text)
-    VBE_mode_info_block_height dw 0 ;in pixels(graphics)/columns(text)
-    VBE_mode_info_block_char_width dw 0 ;in pixels, unused
-    VBE_mode_info_block_char_height dw 0 ;in pixels, unused
-    VBE_mode_info_block_planes_count db 0
-    VBE_mode_info_block_bpp db 0 ;bits per pixel
-    VBE_mode_info_block_banks_count db 0 ;deprecated, total amount of banks in the mode
-    VBE_mode_info_block_memory_model db 0
-    VBE_mode_info_block_bank_size db 0 ;in KB, deprecated, size of a bank
-    VBE_mode_info_block_image_pages_count db 0 ;count - 1
-    VBE_mode_info_block_reserved0 db 0 ;0 in revision 1.0-2.0, 1 in revision 3.0
-
-    ;size and pos of masks
-    VBE_mode_info_block_red_mask db 0
-    VBE_mode_info_block_red_pos db 0
-    VBE_mode_info_block_green_mask db 0
-    VBE_mode_info_block_green_pos db 0
-    VBE_mode_info_block_blue_mask db 0
-    VBE_mode_info_block_blue_pos db 0
-    VBE_mode_info_block_reserved_mask db 0
-    VBE_mode_info_block_reserved_pos db 0
-    VBE_mode_info_block_direct_color_attributes db 0
-
-    ;added in revision 2.0
-    VBE_mode_info_block_framebuffer dd 0 ;physical address of the framebuffer, write here
-    VBE_mode_info_block_off_screen_mem_offset dd 0 
-    VBE_mode_info_block_off_screen_mem_size dw 0 ;in KB, size of memory in framebuffer but not being displayed on the screen
-    VBE_mode_info_block_reserved db 206 ;available in revision 3.0, useless
-VBE_mode_info_block_end:
 
 ;code segment descriptor
 ;Base            32b: starting location of segment
@@ -870,13 +850,62 @@ __kernel_load_fail_final:
 
 
 
-VBEStuff:
-    xor ax, ax
-    mov es, ax
-    mov di, VBE_info_block_start
 
+
+
+
+
+
+
+
+
+
+    VBEStuff_get_controller_info_success_msg db "VBE get controller info success!", 0xD, 0xA, 0
+    VBEStuff_get_controller_info_fail_msg db "VBE get controller info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
+
+    VBEStuff_get_controller_info_print_msg db "VBE controller info:", 0xD, 0xA, 0
+    VBEStuff_get_controller_info_print_msg1 db 0xD, 0xA, "Video modes ptr(seg:off): ", 0
+
+    VBEStuff_get_mode_info_fail_msg db "VBE get mode info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
+
+    print_VBE_mode_text_msg db " bpp: ", 0
+
+    VBE_mode_info_block_fb_support dw VBE_mode_info_block_fb_support_f
+    dw VBE_mode_info_block_fb_support_t
+
+    VBE_mode_info_block_fb_support_t db "Linear FB: YUH UH", 0
+    VBE_mode_info_block_fb_support_f db "Linear FB: NUH UH", 0
+
+    
+
+;FAILSTATES
+VBEStuff_get_controller_info_fail:
+    xor ax, ax
+    mov ds, ax
+    mov si, VBEStuff_get_controller_info_fail_msg
+    call _printstr
+    ;blocking keyboard input
+    xor ax, ax
+    int 0x16 ;keyboard services
+    jmp biosboot_pc
+VBEStuff_get_mode_info_fail:
+    xor ax, ax
+    mov ds, ax
+    mov si, VBEStuff_get_mode_info_fail_msg
+    call _printstr
+    ;blocking keyboard input
+    xor ax, ax
+    int 0x16 ;keyboard services
+    jmp biosboot_pc
+
+
+
+
+VBEStuff:
     ;get controller info
-    clc
+    xor ax, ax ;es:di
+    mov es, ax
+    mov di, VBE_info_block_start    
     mov ax, 0x4F00 ;int 0x10, 0x4F00: get controller info
     int 0x10
     cmp ax, 0x004F
@@ -918,14 +947,6 @@ VBEStuff:
     mov si, VBEStuff_get_controller_info_print_msg1
     call _printstr
 
-    mov ax, [VBE_info_block_total_memory]
-    call print_ax
-
-    xor ax, ax
-    mov ds, ax
-    mov si, VBEStuff_get_controller_info_print_msg2
-    call _printstr
-
     mov ax, [VBE_info_block_video_mode_segment]
     call print_ax
     mov ah, 0xE
@@ -940,21 +961,27 @@ VBEStuff:
     int 0x10
 
     ;iter mode numbers and find the good one
-    ;get start of modes array and put into es:si
-    mov ax, [VBE_info_block_video_mode_segment]
-    mov es, ax
+    ;get start of modes array and put into fs:si
+    mov ax, [VBE_info_block_video_mode_segment] ;make sure fs is the correct value
+    mov fs, ax
     mov si, [VBE_info_block_video_mode_offset]
-VBEStuff_iter_modes_loop:
-    mov ax, es:[si]
+VBEStuff_iter_modes_loop: ;cannot change fs, si 
+    mov ax, fs:[si] ;ax = current mode number
+
+    push ax
+    push fs
+    push si
     ;now print mode in text form
     call print_VBE_mode_text
-    ;check if mode number is the GOOD one(1280x1024 8:8:8)
-    cmp ax, 0x011B
-    je VBEStuff_iter_modes_found
+    pop si
+    pop fs
+    pop ax
 
     ;if mode number is 0xFFFF, exit program
     cmp ax, 0xFFFF
     je VBEStuff_iter_modes_exit
+
+    ;BRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR BOMBARDIRO CROCODILO
     
     ;increment si
     add si, 2
@@ -963,74 +990,8 @@ VBEStuff_iter_modes_loop:
     call _wait
 
     jmp VBEStuff_iter_modes_loop
-VBEStuff_get_controller_info_fail:
-    xor ax, ax
-    mov ds, ax
-    mov si, VBEStuff_get_controller_info_fail_msg
-    call _printstr
-    ;blocking keyboard input
-    xor ax, ax
-    int 0x16 ;keyboard services
-    jmp biosboot_pc
 VBEStuff_iter_modes_exit:
-    ;not found
-    xor ax, ax
-    mov ds, ax
-    mov si, VBEStuff_iter_modes_not_found_msg
-    call _printstr
-    ;blocking keyboard input
-    xor ax, ax
-    int 0x16 ;keyboard services
-    jmp biosboot_pc
-VBEStuff_get_mode_info_fail:
-    xor ax, ax
-    mov ds, ax
-    mov si, VBEStuff_mode_info_fail_msg
-    call _printstr
-    ;blocking keyboard input
-    xor ax, ax
-    int 0x16 ;keyboard services
-    jmp biosboot_pc
-
-
-VBEStuff_iter_modes_found:
-    ;found
-    xor ax, ax
-    mov ds, ax
-    mov si, VBEStuff_iter_modes_found_msg
-    call _printstr
-
-    mov cx, 0x2000
-    call _wait
-    
-    
-    ;continue execution, get mode info
-    mov ax, 0x4F01 ;scancode
-    mov cx, 0x011B ;THE good mode
-    ;es:di = 256b buffer
-    xor dx, dx
-    mov es, dx
-    mov di, VBE_mode_info_block_start
-    int 0x10
-    cmp ax, 0x004F
-    jne VBEStuff_get_mode_info_fail
-
-    
-    mov cx, 0x2000
-    call _wait
-
-    ;set video mode
-    mov ax, 0x4F02 ;scancode
-    mov bx, 0x011B ;bx = mode number
-    or bx, 0x4000 ;use linear framebuffer
-    int 0x10
-    cmp ax, 0x004F
-    jne VBEStuff_set_video_mode_fail
-
     ret
-
-
-
 
 
 
@@ -1040,92 +1001,83 @@ VBEStuff_iter_modes_found:
 
 
 print_VBE_mode_text:
-    pusha
-    cmp ax, 0xFFFF
-    je print_VBE_mode_text_end
-    and ah, 1
-    cmp ah, 1
-    je print_VBE_mode_text_VBE_defined
-    jmp print_VBE_mode_text_end
-print_VBE_mode_text_VBE_defined:
-    ;al is the mode
-    ;Eliminate modes that are not in the range 0x10 - 0x1B (inclusive)
-    cmp al, 0x1B
-    ja print_VBE_mode_text_end
-    ;print the string
-    call print_al
+    ;print value in ax
+    call print_ax
+
+    ;print space
     mov bx, ax
     mov ax, 0x0E20
     int 0x10
     mov ax, bx
-    mov bx, print_VBE_mode_text_ptr_arr
-    xor ah, ah
-    add bx, ax
-    add bx, ax
-    mov si, bx
-    mov si, [si]
+
+    ;if mode number is 0xFFFF, exit program
+    cmp ax, 0xFFFF
+    je print_VBE_mode_text_end
+
+    ;now get mode info
+    xor bx, bx
+    mov ds, bx
+
+    mov cx, ax ;cx = mode number
+    mov ax, 0x4F01 ;scancode
+    ;es:di = 256b buffer
+    xor dx, dx
+    mov es, dx
+    mov di, VBE_mode_info_block_start
+    int 0x10
+    cmp ax, 0x004F
+    jne VBEStuff_get_mode_info_fail
+
+
+    ;now print out width and height
+    xor ax, ax
+    mov ds, ax
+    mov ax, [VBE_mode_info_block_width]
+    call print_ax_decimal
+    mov ah, 0xE
+    mov al, 'x'
+    int 0x10
+    mov ax, [VBE_mode_info_block_height]
+    call print_ax_decimal
+    mov ax, 0x0E20
+    int 0x10
+    ;print space
+    mov ax, 0x0E20
+    int 0x10
+    ;print if it supports linear framebuffer or not
+    mov bx, [VBE_mode_info_block_attributes]
+    and bx, 0b10000000 ;if bit 7 is 1 it supports
+    shr bx, 6
+    add bx, VBE_mode_info_block_fb_support
+    xor ax, ax
+    mov ds, ax
+    mov si, [bx] ;pointer array shenanigans
     call _printstr
+    ;print space and msg
+    xor ax, ax
+    mov ds, ax
+    mov si, print_VBE_mode_text_msg
+    call _printstr
+    ;print bits per pixel
+    xor ax, ax
+    mov al, [VBE_mode_info_block_bpp]
+    call print_ax_decimal
+
     mov ax, 0x0E0D
     int 0x10
     mov ax, 0x0E0A
     int 0x10
 print_VBE_mode_text_end:
-    popa
     ret
 
-print_VBE_mode_text_ptr_arr:
-    dw print_VBE_mode_text_0100
-    dw print_VBE_mode_text_0101
-    dw print_VBE_mode_text_0102
-    dw print_VBE_mode_text_0103
-    dw print_VBE_mode_text_0104
-    dw print_VBE_mode_text_0105
-    dw print_VBE_mode_text_0106
-    dw print_VBE_mode_text_0107
-    dw print_VBE_mode_text_invalid
-    dw print_VBE_mode_text_invalid
-    dw print_VBE_mode_text_invalid
-    dw print_VBE_mode_text_invalid
-    dw print_VBE_mode_text_invalid
-    dw print_VBE_mode_text_010D
-    dw print_VBE_mode_text_010E
-    dw print_VBE_mode_text_010F
-    dw print_VBE_mode_text_0110
-    dw print_VBE_mode_text_0111
-    dw print_VBE_mode_text_0112
-    dw print_VBE_mode_text_0113
-    dw print_VBE_mode_text_0114
-    dw print_VBE_mode_text_0115
-    dw print_VBE_mode_text_0116
-    dw print_VBE_mode_text_0117
-    dw print_VBE_mode_text_0118
-    dw print_VBE_mode_text_0119
-    dw print_VBE_mode_text_011A
-    dw print_VBE_mode_text_011B
-print_VBE_mode_text_invalid db 0
-print_VBE_mode_text_0100 db '640x400 256-color', 0
-print_VBE_mode_text_0101 db '640x480 256-color', 0
-print_VBE_mode_text_0102 db '800x600 16-color', 0
-print_VBE_mode_text_0103 db '800x600 256-color', 0
-print_VBE_mode_text_0104 db '1024x768 16-color', 0
-print_VBE_mode_text_0105 db '1024x768 256-color', 0
-print_VBE_mode_text_0106 db '1280x1024 16-color', 0
-print_VBE_mode_text_0107 db '1280x1024 256-color', 0
-print_VBE_mode_text_010D db '320x200 5:5:5', 0
-print_VBE_mode_text_010E db '320x200 5:6:5', 0
-print_VBE_mode_text_010F db '320x200 8:8:8', 0
-print_VBE_mode_text_0110 db '640x480 5:5:5', 0
-print_VBE_mode_text_0111 db '640x480 5:6:5', 0
-print_VBE_mode_text_0112 db '640x480 8:8:8', 0
-print_VBE_mode_text_0113 db '800x600 5:5:5', 0
-print_VBE_mode_text_0114 db '800x600 5:6:5', 0
-print_VBE_mode_text_0115 db '800x600 8:8:8', 0
-print_VBE_mode_text_0116 db '1024x768 5:5:5', 0
-print_VBE_mode_text_0117 db '1024x768 5:6:5', 0
-print_VBE_mode_text_0118 db '1024x768 8:8:8', 0
-print_VBE_mode_text_0119 db '1280x1024 5:5:5', 0
-print_VBE_mode_text_011A db '1280x1024 5:6:5', 0
-print_VBE_mode_text_011B db '1280x1024 8:8:8', 0
+
+
+
+
+
+
+
+
 
 boot_pmode:
     xor ax, ax
@@ -1160,7 +1112,7 @@ clear_loop:
     ;disable cursor
     mov ah, 0x01
     mov cx, 0x2000 ;disable cursor
-    int 0x10    ;int 0x10, 1: set cursor type
+    int 0x10 ;int 0x10, 1: set cursor type
 
     ;Mode 12h
     ;VGA 640x480 16 color
@@ -1168,21 +1120,22 @@ clear_loop:
     ;int 0x10 ;bios call video services
 
     ;VBE graphics
-    cli
     call VBEStuff
-    
+
+    cli
     lgdt [GDT_descriptor] ;load GDT
+    
     ;change last bit of cr0 to 1
     mov eax, cr0
     or eax, 1
     mov cr0, eax
+    
     ;PROTECTED MODE!
     ;far jump to code segment
     jmp CODE_SEG:pmode
 
 BITS 32
 pmode:
-    jmp $
     mov ax, DATA_SEG ;setup segments
     mov ds, ax
     mov ss, ax
@@ -1195,6 +1148,72 @@ pmode:
     ;jump to loaded kernel
     jmp 0x10000
     jmp $
+
+
+
+
+
+
+
+
+
+
+; TOTAL of 512 bytes
+VBE_info_block_start:
+    VBE_info_block_signature db 'NEIN'
+    VBE_info_block_version dw 0
+    VBE_info_block_OEM_name_ptr dd 0 ;far ptr 32b
+    VBE_info_block_capabilities dd 0
+    VBE_info_block_video_mode_offset dw 0
+    VBE_info_block_video_mode_segment dw 0
+    VBE_info_block_total_memory dw 0 ;count of 64k blocks
+    times 492 db 0 ;reserved
+VBE_info_block_end:
+
+; TOTAL of 256 bytes
+VBE_mode_info_block_start:
+    VBE_mode_info_block_attributes dw 0 ;deprecated, if bit 7 is 1 supports a linear frame buffer
+    VBE_mode_info_block_window_a db 0 ;deprecated
+    VBE_mode_info_block_window_b db 0 ;deprecated
+    VBE_mode_info_block_granularity dw 0 ;in KB, deprecated
+    VBE_mode_info_block_window_size dw 0 ;in KB
+    VBE_mode_info_block_segment_a dw 0 ;0 if not supported
+    VBE_mode_info_block_segment_b dw 0 ;0 if not supported
+    VBE_mode_info_block_win_func_ptr dd 0  ;deprecated, used to switch banks in pmode without going to real
+    VBE_mode_info_block_pitch dw 0 ;bytes of vram to skip to go down a line
+
+    VBE_mode_info_block_width dw 0 ;in pixels(graphics)/columns(text)
+    VBE_mode_info_block_height dw 0 ;in pixels(graphics)/columns(text)
+    VBE_mode_info_block_char_width dw 0 ;in pixels, unused
+    VBE_mode_info_block_char_height dw 0 ;in pixels, unused
+    VBE_mode_info_block_planes_count db 0
+    VBE_mode_info_block_bpp db 0 ;bits per pixel
+    VBE_mode_info_block_banks_count db 0 ;deprecated, total amount of banks in the mode
+    VBE_mode_info_block_memory_model db 0
+    VBE_mode_info_block_bank_size db 0 ;in KB, deprecated, size of a bank
+    VBE_mode_info_block_image_pages_count db 0 ;count - 1
+    VBE_mode_info_block_reserved0 db 0 ;0 in revision 1.0-2.0, 1 in revision 3.0
+
+    ;size and pos of masks
+    VBE_mode_info_block_red_mask db 0
+    VBE_mode_info_block_red_pos db 0
+    VBE_mode_info_block_green_mask db 0
+    VBE_mode_info_block_green_pos db 0
+    VBE_mode_info_block_blue_mask db 0
+    VBE_mode_info_block_blue_pos db 0
+    VBE_mode_info_block_reserved_mask db 0
+    VBE_mode_info_block_reserved_pos db 0
+    VBE_mode_info_block_direct_color_attributes db 0
+
+    ;added in revision 2.0
+    VBE_mode_info_block_framebuffer dd 0 ;physical address of the framebuffer, write here
+    VBE_mode_info_block_off_screen_mem_offset dd 0 
+    VBE_mode_info_block_off_screen_mem_size dw 0 ;in KB, size of memory in framebuffer but not being displayed on the screen
+    VBE_mode_info_block_reserved db 206 ;available in revision 3.0, useless
+VBE_mode_info_block_end:
+
+
+
 
 times 10240-($-$$) db 0 ;total length of binary 20 sector
                         ;total length of disk 22 sectors, 1:code, 2-3:partition info 4-10:codedb 0x69
