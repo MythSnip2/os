@@ -252,7 +252,7 @@
    234 0000043C 80FC3F                      cmp ah, 0x3F
    235 0000043F 0F84F800                    je biosbeep
    236 00000443 80FC40                      cmp ah, 0x40
-   237 00000446 0F844C0A                    je boot_pmode
+   237 00000446 0F84200B                    je boot_pmode
    238 0000044A 80FC41                      cmp ah, 0x41
    239 0000044D 7407                        je retest
    240                                  
@@ -847,542 +847,656 @@
    700 00000BCA 730D0A00           
    701                                  
    702                                  
-   703                                  
-   704                                  ;code segment descriptor
-   705                                  ;Base            32b: starting location of segment
-   706                                  ;Limit           20b: size of limit
-   707                                  ;Present          1b: Is this segment used/is a valid segment
-   708                                  ;Privilege        2b: (00, 01, 10, 11), 00 is highest privilege
-   709                                  ;Type             1b: 1 if segment is code or data segment
-   710                                  ;Flags(1b):
-   711                                  ;  Type flags(4b):
-   712                                  ;    1. Code? Will segment contain code
-   713                                  ;    2. Conforming: can this code be executed from lower privileged segments
-   714                                  ;            For data segment, this flag becomes direction flag, if direction=1, segment
-   715                                  ;            becomes an expand down segment
-   716                                  ;    3. Readable, can this segment be read?
-   717                                  ;            For data segment, this flag becomes writable flag, if writable=0,
-   718                                  ;            segment becomes read only
-   719                                  ;    4. Accessed: set to 1 when CPU is using the segment
-   720                                  ;  Other flags(4b):
-   721                                  ;    1. Granularity: when it is set to one the limit is multiplied by 0x1000(4096)
-   722                                  ;    2. 32 bits: Is this segment going to use 32 bit memory?
-   723                                  ;    3 & 4: 64 bit tetio, just set to 0
-   724                                  
-   725                                  ;offset of the segment descriptors relative to the beginning of the GDT
-   726                                  CODE_SEG equ GDT_code - GDT_start
-   727                                  DATA_SEG equ GDT_data - GDT_start
-   728                                  
-   729                                  ;kernel location is 0x10000
-   730                                  KERNEL_LOCATION equ 0x1000
-   731                                  
-   732                                  GDT_start:
-   733                                      GDT_null:
-   734 00000BCE 00000000                        dd 0 ;(32 bits)
-   735 00000BD2 00000000                        dd 0 ;(32 bits)
-   736                                      GDT_code:
-   737                                          ;base: 0
-   738                                          ;limit: 0xFFFFF
-   739                                          ;PPT: 1001
-   740                                          ;Type: 1010
-   741                                          ;Other: 1100
-   742                                  
-   743                                          ;first 16 bits of limit
-   744 00000BD6 FFFF                            dw 0xFFFF
-   745                                          ;first 24 bits of base
-   746 00000BD8 0000                            dw 0x0000 ;16 bits
-   747 00000BDA 00                              db 0x00   ; 8 bits
-   748                                          ;PPT + Type
-   749 00000BDB 9A                              db 0b10011010
-   750                                          ;other + last 4 bits of limit
-   751 00000BDC CF                              db 0b11001111
-   752                                          ;last 8 bits of base
-   753 00000BDD 00                              db 0b00000000
-   754                                      GDT_data:
-   755                                          ;base: 0
-   756                                          ;limit: 0xFFFFF
-   757                                          ;PPT: 1001
-   758                                          ;Type: 0010
-   759                                          ;Other: 1100
-   760                                  
-   761                                          ;first 16 bits of limit
-   762 00000BDE FFFF                            dw 0xFFFF
-   763                                          ;first 24 bits of base
-   764 00000BE0 0000                            dw 0x0000 ;16 bits
-   765 00000BE2 00                              db 0x00   ; 8 bits
-   766                                          ;PPT + Type
-   767 00000BE3 92                              db 0b10010010
-   768                                          ;other + last 4 bits of limit
-   769 00000BE4 CF                              db 0b11001111
-   770                                          ;last 8 bits of base
-   771 00000BE5 00                              db 0b00000000
-   772                                  GDT_end:
-   773                                  GDT_descriptor:
-   774                                      ;size of GDT(16 bits)
-   775 00000BE6 1700                        dw GDT_end - GDT_start - 1
-   776                                      ;start of GDT(32 bits)
-   777 00000BE8 [CE0B0000]                  dd GDT_start
-   778                                  
-   779                                  
-   780                                  _kernel_load:
-   781 00000BEC 31FF                        xor di, di ;counter for retry
-   782                                  _kernel_load_loop:
-   783                                  
-   784 00000BEE 31C0                        xor ax, ax
-   785 00000BF0 8ED8                        mov ds, ax
-   786 00000BF2 BE[CF00]                    mov si, disk_read_msg ;Reading from disk: diskNum
-   787 00000BF5 E8A1F4                      call _printstr
-   788                                  
-   789                                      ;Read (al) number of sectors from ch, dh, cl, drive dl, store in es:bx
-   790 00000BF8 B88002                      mov ax, 0x0280 ;ah=scancode, Read sectors | al=number of sectors to read
-   791 00000BFB B91500                      mov cx, 0x0015 ;ch=cylinder number CHS | cl=sector number CHS = 21 = 0x15
-   792 00000BFE 30F6                        xor dh, dh ;head number CHS
-   793 00000C00 8A16[E200]                  mov dl, [diskNum] ;drive number
-   794                                      ;Address to store values in: es:bx
-   795 00000C04 BB0010                      mov bx, 0x1000
-   796 00000C07 8EC3                        mov es, bx
-   797 00000C09 31DB                        xor bx, bx
+   703 00000BCE 564245206765742063-         VBEStuff_get_controller_info_success_msg db "VBE get controller info success!", 0xD, 0xA, 0
+   703 00000BD7 6F6E74726F6C6C6572-
+   703 00000BE0 20696E666F20737563-
+   703 00000BE9 63657373210D0A00   
+   704 00000BF1 564245206765742063-         VBEStuff_get_controller_info_fail_msg db "VBE get controller info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
+   704 00000BFA 6F6E74726F6C6C6572-
+   704 00000C03 20696E666F20666169-
+   704 00000C0C 6C210D0A5072657373-
+   704 00000C15 20616E79206B657920-
+   704 00000C1E 746F20636F6E74696E-
+   704 00000C27 75652E2E2E0D0A00   
+   705                                  
+   706 00000C2F 56424520636F6E7472-         VBEStuff_get_controller_info_print_msg db "VBE controller info:", 0xD, 0xA, 0
+   706 00000C38 6F6C6C657220696E66-
+   706 00000C41 6F3A0D0A00         
+   707 00000C46 0D0A566964656F206D-         VBEStuff_get_controller_info_print_msg1 db 0xD, 0xA, "Video modes ptr(seg:off): ", 0
+   707 00000C4F 6F6465732070747228-
+   707 00000C58 7365673A6F6666293A-
+   707 00000C61 2000               
+   708                                  
+   709 00000C63 56424520676574206D-         VBEStuff_get_mode_info_fail_msg db "VBE get mode info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
+   709 00000C6C 6F646520696E666F20-
+   709 00000C75 6661696C210D0A5072-
+   709 00000C7E 65737320616E79206B-
+   709 00000C87 657920746F20636F6E-
+   709 00000C90 74696E75652E2E2E0D-
+   709 00000C99 0A00               
+   710                                  
+   711 00000C9B 206270703A00                print_VBE_mode_text_msg db " bpp:", 0
+   712 00000CA1 2070697463683A00            print_VBE_mode_text_msg1 db " pitch:", 0
+   713 00000CA9 206D6D3A00                  print_VBE_mode_text_msg2 db " mm:", 0
+   714                                  
+   715 00000CAE 42657374206D6F6465-         VBEStuff_iter_modes_best_mode_msg db "Best mode: ", 0xD, 0xA, 0
+   715 00000CB7 3A200D0A00         
+   716                                  
+   717 00000CBC [C80C]                      VBE_mode_info_block_fb_support dw VBE_mode_info_block_fb_support_f
+   718 00000CBE [C00C]                      dw VBE_mode_info_block_fb_support_t
+   719                                  
+   720 00000CC0 4C46423A204A4100            VBE_mode_info_block_fb_support_t db "LFB: JA", 0
+   721 00000CC8 4C46423A204E45494E-         VBE_mode_info_block_fb_support_f db "LFB: NEIN", 0
+   721 00000CD1 00                 
+   722                                  
+   723                                  
+   724                                  ;code segment descriptor
+   725                                  ;Base            32b: starting location of segment
+   726                                  ;Limit           20b: size of limit
+   727                                  ;Present          1b: Is this segment used/is a valid segment
+   728                                  ;Privilege        2b: (00, 01, 10, 11), 00 is highest privilege
+   729                                  ;Type             1b: 1 if segment is code or data segment
+   730                                  ;Flags(1b):
+   731                                  ;  Type flags(4b):
+   732                                  ;    1. Code? Will segment contain code
+   733                                  ;    2. Conforming: can this code be executed from lower privileged segments
+   734                                  ;            For data segment, this flag becomes direction flag, if direction=1, segment
+   735                                  ;            becomes an expand down segment
+   736                                  ;    3. Readable, can this segment be read?
+   737                                  ;            For data segment, this flag becomes writable flag, if writable=0,
+   738                                  ;            segment becomes read only
+   739                                  ;    4. Accessed: set to 1 when CPU is using the segment
+   740                                  ;  Other flags(4b):
+   741                                  ;    1. Granularity: when it is set to one the limit is multiplied by 0x1000(4096)
+   742                                  ;    2. 32 bits: Is this segment going to use 32 bit memory?
+   743                                  ;    3 & 4: 64 bit tetio, just set to 0
+   744                                  
+   745                                  ;offset of the segment descriptors relative to the beginning of the GDT
+   746                                  CODE_SEG equ GDT_code - GDT_start
+   747                                  DATA_SEG equ GDT_data - GDT_start
+   748                                  
+   749                                  ;kernel location is 0x10000
+   750                                  KERNEL_LOCATION equ 0x1000
+   751                                  
+   752                                  GDT_start:
+   753                                      GDT_null:
+   754 00000CD2 00000000                        dd 0 ;(32 bits)
+   755 00000CD6 00000000                        dd 0 ;(32 bits)
+   756                                      GDT_code:
+   757                                          ;base: 0
+   758                                          ;limit: 0xFFFFF
+   759                                          ;PPT: 1001
+   760                                          ;Type: 1010
+   761                                          ;Other: 1100
+   762                                  
+   763                                          ;first 16 bits of limit
+   764 00000CDA FFFF                            dw 0xFFFF
+   765                                          ;first 24 bits of base
+   766 00000CDC 0000                            dw 0x0000 ;16 bits
+   767 00000CDE 00                              db 0x00   ; 8 bits
+   768                                          ;PPT + Type
+   769 00000CDF 9A                              db 0b10011010
+   770                                          ;other + last 4 bits of limit
+   771 00000CE0 CF                              db 0b11001111
+   772                                          ;last 8 bits of base
+   773 00000CE1 00                              db 0b00000000
+   774                                      GDT_data:
+   775                                          ;base: 0
+   776                                          ;limit: 0xFFFFF
+   777                                          ;PPT: 1001
+   778                                          ;Type: 0010
+   779                                          ;Other: 1100
+   780                                  
+   781                                          ;first 16 bits of limit
+   782 00000CE2 FFFF                            dw 0xFFFF
+   783                                          ;first 24 bits of base
+   784 00000CE4 0000                            dw 0x0000 ;16 bits
+   785 00000CE6 00                              db 0x00   ; 8 bits
+   786                                          ;PPT + Type
+   787 00000CE7 92                              db 0b10010010
+   788                                          ;other + last 4 bits of limit
+   789 00000CE8 CF                              db 0b11001111
+   790                                          ;last 8 bits of base
+   791 00000CE9 00                              db 0b00000000
+   792                                  GDT_end:
+   793                                  GDT_descriptor:
+   794                                      ;size of GDT(16 bits)
+   795 00000CEA 1700                        dw GDT_end - GDT_start - 1
+   796                                      ;start of GDT(32 bits)
+   797 00000CEC [D20C0000]                  dd GDT_start
    798                                  
-   799 00000C0B CD13                        int 0x13 ;disk read
-   800 00000C0D 720B                        jc __kernel_load_fail
-   801                                  
-   802                                      ;disk read success
-   803 00000C0F 31C0                        xor ax, ax
-   804 00000C11 8ED8                        mov ds, ax
-   805 00000C13 BE[B80B]                    mov si, kernel_load_success
-   806 00000C16 E880F4                      call _printstr
-   807 00000C19 C3                          ret
+   799                                  
+   800                                  _kernel_load:
+   801 00000CF0 31FF                        xor di, di ;counter for retry
+   802                                  _kernel_load_loop:
+   803                                  
+   804 00000CF2 31C0                        xor ax, ax
+   805 00000CF4 8ED8                        mov ds, ax
+   806 00000CF6 BE[CF00]                    mov si, disk_read_msg ;Reading from disk: diskNum
+   807 00000CF9 E89DF3                      call _printstr
    808                                  
-   809                                  __kernel_load_fail:
-   810                                      ;if number of attempts is over or equal 8
-   811 00000C1A 83FF08                      cmp di, 8
-   812 00000C1D 7D2D                        jge __kernel_load_fail_final
-   813                                  
-   814 00000C1F 31C0                        xor ax, ax
-   815 00000C21 8ED8                        mov ds, ax
-   816 00000C23 BE[630B]                    mov si, kernel_load_fail
-   817 00000C26 E870F4                      call _printstr
+   809                                      ;Read (al) number of sectors from ch, dh, cl, drive dl, store in es:bx
+   810 00000CFC B88002                      mov ax, 0x0280 ;ah=scancode, Read sectors | al=number of sectors to read
+   811 00000CFF B91500                      mov cx, 0x0015 ;ch=cylinder number CHS | cl=sector number CHS = 21 = 0x15
+   812 00000D02 30F6                        xor dh, dh ;head number CHS
+   813 00000D04 8A16[E200]                  mov dl, [diskNum] ;drive number
+   814                                      ;Address to store values in: es:bx
+   815 00000D08 BB0010                      mov bx, 0x1000
+   816 00000D0B 8EC3                        mov es, bx
+   817 00000D0D 31DB                        xor bx, bx
    818                                  
-   819                                      ;attempt to reset disk
-   820 00000C29 31C0                        xor ax, ax ;scancode ah = 0
-   821 00000C2B 8A16[E200]                  mov dl, [diskNum]
-   822 00000C2F CD13                        int 0x13 ;reset disk system
-   823                                  
-   824 00000C31 47                          inc di
-   825                                      ;update number of attempts
-   826 00000C32 89F8                        mov ax, di
-   827 00000C34 83C030                      add ax, '0'
-   828 00000C37 A2[EE00]                    mov [attempt_num], al
-   829                                  
-   830 00000C3A 31C0                        xor ax, ax
-   831 00000C3C 8ED8                        mov ds, ax
-   832 00000C3E BE[E600]                    mov si, attempts_msg
-   833 00000C41 E855F4                      call _printstr
-   834                                  
-   835 00000C44 B90020                      mov cx, 0x2000
-   836 00000C47 E87BF4                      call _wait
-   837                                  
-   838 00000C4A EBA2                        jmp _kernel_load_loop
-   839                                  
-   840                                  __kernel_load_fail_final:
-   841 00000C4C 31C0                        xor ax, ax
-   842 00000C4E 8ED8                        mov ds, ax
-   843 00000C50 BE[870B]                    mov si, kernel_load_fail_final
-   844 00000C53 E843F4                      call _printstr
-   845 00000C56 58                          pop ax
-   846 00000C57 E9B6F7                      jmp hang  ;go back to 16 bit hang loop if fail
-   847                                  
-   848                                  
+   819 00000D0F CD13                        int 0x13 ;disk read
+   820 00000D11 720B                        jc __kernel_load_fail
+   821                                  
+   822                                      ;disk read success
+   823 00000D13 31C0                        xor ax, ax
+   824 00000D15 8ED8                        mov ds, ax
+   825 00000D17 BE[B80B]                    mov si, kernel_load_success
+   826 00000D1A E87CF3                      call _printstr
+   827 00000D1D C3                          ret
+   828                                  
+   829                                  __kernel_load_fail:
+   830                                      ;if number of attempts is over or equal 8
+   831 00000D1E 83FF08                      cmp di, 8
+   832 00000D21 7D2D                        jge __kernel_load_fail_final
+   833                                  
+   834 00000D23 31C0                        xor ax, ax
+   835 00000D25 8ED8                        mov ds, ax
+   836 00000D27 BE[630B]                    mov si, kernel_load_fail
+   837 00000D2A E86CF3                      call _printstr
+   838                                  
+   839                                      ;attempt to reset disk
+   840 00000D2D 31C0                        xor ax, ax ;scancode ah = 0
+   841 00000D2F 8A16[E200]                  mov dl, [diskNum]
+   842 00000D33 CD13                        int 0x13 ;reset disk system
+   843                                  
+   844 00000D35 47                          inc di
+   845                                      ;update number of attempts
+   846 00000D36 89F8                        mov ax, di
+   847 00000D38 83C030                      add ax, '0'
+   848 00000D3B A2[EE00]                    mov [attempt_num], al
    849                                  
-   850                                  
-   851                                  
-   852                                  
-   853                                  
+   850 00000D3E 31C0                        xor ax, ax
+   851 00000D40 8ED8                        mov ds, ax
+   852 00000D42 BE[E600]                    mov si, attempts_msg
+   853 00000D45 E851F3                      call _printstr
    854                                  
-   855                                  
-   856                                  
+   855 00000D48 B90020                      mov cx, 0x2000
+   856 00000D4B E877F3                      call _wait
    857                                  
-   858                                  
+   858 00000D4E EBA2                        jmp _kernel_load_loop
    859                                  
-   860                                  
-   861                                  
-   862                                  
-   863 00000C5A 564245206765742063-         VBEStuff_get_controller_info_success_msg db "VBE get controller info success!", 0xD, 0xA, 0
-   863 00000C63 6F6E74726F6C6C6572-
-   863 00000C6C 20696E666F20737563-
-   863 00000C75 63657373210D0A00   
-   864 00000C7D 564245206765742063-         VBEStuff_get_controller_info_fail_msg db "VBE get controller info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
-   864 00000C86 6F6E74726F6C6C6572-
-   864 00000C8F 20696E666F20666169-
-   864 00000C98 6C210D0A5072657373-
-   864 00000CA1 20616E79206B657920-
-   864 00000CAA 746F20636F6E74696E-
-   864 00000CB3 75652E2E2E0D0A00   
-   865                                  
-   866 00000CBB 56424520636F6E7472-         VBEStuff_get_controller_info_print_msg db "VBE controller info:", 0xD, 0xA, 0
-   866 00000CC4 6F6C6C657220696E66-
-   866 00000CCD 6F3A0D0A00         
-   867 00000CD2 0D0A566964656F206D-         VBEStuff_get_controller_info_print_msg1 db 0xD, 0xA, "Video modes ptr(seg:off): ", 0
-   867 00000CDB 6F6465732070747228-
-   867 00000CE4 7365673A6F6666293A-
-   867 00000CED 2000               
+   860                                  __kernel_load_fail_final:
+   861 00000D50 31C0                        xor ax, ax
+   862 00000D52 8ED8                        mov ds, ax
+   863 00000D54 BE[870B]                    mov si, kernel_load_fail_final
+   864 00000D57 E83FF3                      call _printstr
+   865 00000D5A 58                          pop ax
+   866 00000D5B E9B2F6                      jmp hang  ;go back to 16 bit hang loop if fail
+   867                                  
    868                                  
-   869 00000CEF 56424520676574206D-         VBEStuff_get_mode_info_fail_msg db "VBE get mode info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
-   869 00000CF8 6F646520696E666F20-
-   869 00000D01 6661696C210D0A5072-
-   869 00000D0A 65737320616E79206B-
-   869 00000D13 657920746F20636F6E-
-   869 00000D1C 74696E75652E2E2E0D-
-   869 00000D25 0A00               
+   869                                  
    870                                  
-   871 00000D27 206270703A2000              print_VBE_mode_text_msg db " bpp: ", 0
-   872                                  
-   873 00000D2E [440D]                      VBE_mode_info_block_fb_support dw VBE_mode_info_block_fb_support_f
-   874 00000D30 [320D]                      dw VBE_mode_info_block_fb_support_t
-   875                                  
-   876 00000D32 4C696E656172204642-         VBE_mode_info_block_fb_support_t db "Linear FB: YUH UH", 0
-   876 00000D3B 3A2059554820554800 
-   877 00000D44 4C696E656172204642-         VBE_mode_info_block_fb_support_f db "Linear FB: NUH UH", 0
-   877 00000D4D 3A204E554820554800 
-   878                                  
-   879                                      
-   880                                  
-   881                                  ;FAILSTATES
-   882                                  VBEStuff_get_controller_info_fail:
-   883 00000D56 31C0                        xor ax, ax
-   884 00000D58 8ED8                        mov ds, ax
-   885 00000D5A BE[7D0C]                    mov si, VBEStuff_get_controller_info_fail_msg
-   886 00000D5D E839F3                      call _printstr
-   887                                      ;blocking keyboard input
-   888 00000D60 31C0                        xor ax, ax
-   889 00000D62 CD16                        int 0x16 ;keyboard services
-   890 00000D64 E943F3                      jmp biosboot_pc
-   891                                  VBEStuff_get_mode_info_fail:
-   892 00000D67 31C0                        xor ax, ax
-   893 00000D69 8ED8                        mov ds, ax
-   894 00000D6B BE[EF0C]                    mov si, VBEStuff_get_mode_info_fail_msg
-   895 00000D6E E828F3                      call _printstr
-   896                                      ;blocking keyboard input
-   897 00000D71 31C0                        xor ax, ax
-   898 00000D73 CD16                        int 0x16 ;keyboard services
-   899 00000D75 E932F3                      jmp biosboot_pc
-   900                                  
-   901                                  
-   902                                  
+   871                                  ;FAILSTATES
+   872                                  VBEStuff_get_controller_info_fail:
+   873 00000D5E 31C0                        xor ax, ax
+   874 00000D60 8ED8                        mov ds, ax
+   875 00000D62 BE[F10B]                    mov si, VBEStuff_get_controller_info_fail_msg
+   876 00000D65 E831F3                      call _printstr
+   877                                      ;blocking keyboard input
+   878 00000D68 31C0                        xor ax, ax
+   879 00000D6A CD16                        int 0x16 ;keyboard services
+   880 00000D6C E93BF3                      jmp biosboot_pc
+   881                                  VBEStuff_get_mode_info_fail:
+   882 00000D6F 31C0                        xor ax, ax
+   883 00000D71 8ED8                        mov ds, ax
+   884 00000D73 BE[630C]                    mov si, VBEStuff_get_mode_info_fail_msg
+   885 00000D76 E820F3                      call _printstr
+   886                                      ;blocking keyboard input
+   887 00000D79 31C0                        xor ax, ax
+   888 00000D7B CD16                        int 0x16 ;keyboard services
+   889 00000D7D E92AF3                      jmp biosboot_pc
+   890                                  
+   891                                  
+   892                                  
+   893                                  
+   894                                  VBEStuff:
+   895                                      ;get controller info
+   896 00000D80 31C0                        xor ax, ax ;es:di
+   897 00000D82 8EC0                        mov es, ax
+   898 00000D84 BF[D60F]                    mov di, VBE_info_block_start    
+   899 00000D87 B8004F                      mov ax, 0x4F00 ;int 0x10, 0x4F00: get controller info
+   900 00000D8A CD10                        int 0x10
+   901 00000D8C 83F84F                      cmp ax, 0x004F
+   902 00000D8F 75CD                        jne VBEStuff_get_controller_info_fail
    903                                  
-   904                                  VBEStuff:
-   905                                      ;get controller info
-   906 00000D78 31C0                        xor ax, ax ;es:di
-   907 00000D7A 8EC0                        mov es, ax
-   908 00000D7C BF[020F]                    mov di, VBE_info_block_start    
-   909 00000D7F B8004F                      mov ax, 0x4F00 ;int 0x10, 0x4F00: get controller info
-   910 00000D82 CD10                        int 0x10
-   911 00000D84 83F84F                      cmp ax, 0x004F
-   912 00000D87 75CD                        jne VBEStuff_get_controller_info_fail
-   913                                  
-   914 00000D89 31C0                        xor ax, ax
-   915 00000D8B 8ED8                        mov ds, ax
-   916 00000D8D BE[5A0C]                    mov si, VBEStuff_get_controller_info_success_msg
-   917 00000D90 E806F3                      call _printstr
-   918                                  
-   919                                      ;print controller info
-   920 00000D93 31C0                        xor ax, ax
-   921 00000D95 8ED8                        mov ds, ax
-   922 00000D97 BE[BB0C]                    mov si, VBEStuff_get_controller_info_print_msg
-   923 00000D9A E8FCF2                      call _printstr
-   924                                  
-   925 00000D9D A0[020F]                    mov al, [VBE_info_block_signature]
-   926 00000DA0 B40E                        mov ah, 0xE
-   927 00000DA2 CD10                        int 0x10
-   928 00000DA4 A1[030F]                    mov ax, [VBE_info_block_signature+1]
-   929 00000DA7 B40E                        mov ah, 0xE
-   930 00000DA9 CD10                        int 0x10
-   931 00000DAB A1[040F]                    mov ax, [VBE_info_block_signature+2]
-   932 00000DAE B40E                        mov ah, 0xE
-   933 00000DB0 CD10                        int 0x10
-   934 00000DB2 A1[050F]                    mov ax, [VBE_info_block_signature+3]
-   935 00000DB5 B40E                        mov ah, 0xE
-   936 00000DB7 CD10                        int 0x10
-   937 00000DB9 B8200E                      mov ax, 0xE20
-   938 00000DBC CD10                        int 0x10
-   939 00000DBE A1[060F]                    mov ax, [VBE_info_block_version]
-   940 00000DC1 B00E                        mov al, 0xE
-   941 00000DC3 86C4                        xchg ah, al
-   942 00000DC5 0430                        add al, '0'
-   943 00000DC7 CD10                        int 0x10
-   944                                  
-   945 00000DC9 31C0                        xor ax, ax
-   946 00000DCB 8ED8                        mov ds, ax
-   947 00000DCD BE[D20C]                    mov si, VBEStuff_get_controller_info_print_msg1
-   948 00000DD0 E8C6F2                      call _printstr
-   949                                  
-   950 00000DD3 A1[120F]                    mov ax, [VBE_info_block_video_mode_segment]
-   951 00000DD6 E8F1F7                      call print_ax
-   952 00000DD9 B40E                        mov ah, 0xE
-   953 00000DDB B03A                        mov al, ':'
-   954 00000DDD CD10                        int 0x10
-   955 00000DDF A1[100F]                    mov ax, [VBE_info_block_video_mode_offset]
-   956 00000DE2 E8E5F7                      call print_ax
-   957                                  
-   958 00000DE5 B80D0E                      mov ax, 0x0E0D
-   959 00000DE8 CD10                        int 0x10
-   960 00000DEA B80A0E                      mov ax, 0x0E0A
-   961 00000DED CD10                        int 0x10
-   962                                  
-   963                                      ;iter mode numbers and find the good one
-   964                                      ;get start of modes array and put into fs:si
-   965 00000DEF A1[120F]                    mov ax, [VBE_info_block_video_mode_segment] ;make sure fs is the correct value
-   966 00000DF2 8EE0                        mov fs, ax
-   967 00000DF4 8B36[100F]                  mov si, [VBE_info_block_video_mode_offset]
-   968                                  VBEStuff_iter_modes_loop: ;cannot change fs, si 
-   969 00000DF8 648B04                      mov ax, fs:[si] ;ax = current mode number
-   970                                  
-   971 00000DFB 50                          push ax
-   972 00000DFC 0FA0                        push fs
-   973 00000DFE 56                          push si
-   974                                      ;now print mode in text form
-   975 00000DFF E81500                      call print_VBE_mode_text
-   976 00000E02 5E                          pop si
-   977 00000E03 0FA1                        pop fs
-   978 00000E05 58                          pop ax
-   979                                  
-   980                                      ;if mode number is 0xFFFF, exit program
-   981 00000E06 83F8FF                      cmp ax, 0xFFFF
-   982 00000E09 740B                        je VBEStuff_iter_modes_exit
-   983                                  
-   984                                      ;BRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR BOMBARDIRO CROCODILO
-   985                                      
-   986                                      ;increment si
-   987 00000E0B 83C602                      add si, 2
-   988                                      ;wait a tiny bit of time
-   989 00000E0E B90001                      mov cx, 0x100
-   990 00000E11 E8B1F2                      call _wait
-   991                                  
-   992 00000E14 EBE2                        jmp VBEStuff_iter_modes_loop
-   993                                  VBEStuff_iter_modes_exit:
-   994 00000E16 C3                          ret
+   904 00000D91 31C0                        xor ax, ax
+   905 00000D93 8ED8                        mov ds, ax
+   906 00000D95 BE[CE0B]                    mov si, VBEStuff_get_controller_info_success_msg
+   907 00000D98 E8FEF2                      call _printstr
+   908                                  
+   909                                      ;print controller info
+   910 00000D9B 31C0                        xor ax, ax
+   911 00000D9D 8ED8                        mov ds, ax
+   912 00000D9F BE[2F0C]                    mov si, VBEStuff_get_controller_info_print_msg
+   913 00000DA2 E8F4F2                      call _printstr
+   914                                  
+   915 00000DA5 A0[D60F]                    mov al, [VBE_info_block_signature]
+   916 00000DA8 B40E                        mov ah, 0xE
+   917 00000DAA CD10                        int 0x10
+   918 00000DAC A1[D70F]                    mov ax, [VBE_info_block_signature+1]
+   919 00000DAF B40E                        mov ah, 0xE
+   920 00000DB1 CD10                        int 0x10
+   921 00000DB3 A1[D80F]                    mov ax, [VBE_info_block_signature+2]
+   922 00000DB6 B40E                        mov ah, 0xE
+   923 00000DB8 CD10                        int 0x10
+   924 00000DBA A1[D90F]                    mov ax, [VBE_info_block_signature+3]
+   925 00000DBD B40E                        mov ah, 0xE
+   926 00000DBF CD10                        int 0x10
+   927 00000DC1 B8200E                      mov ax, 0xE20
+   928 00000DC4 CD10                        int 0x10
+   929 00000DC6 A1[DA0F]                    mov ax, [VBE_info_block_version]
+   930 00000DC9 B00E                        mov al, 0xE
+   931 00000DCB 86C4                        xchg ah, al
+   932 00000DCD 0430                        add al, '0'
+   933 00000DCF CD10                        int 0x10
+   934                                  
+   935 00000DD1 31C0                        xor ax, ax
+   936 00000DD3 8ED8                        mov ds, ax
+   937 00000DD5 BE[460C]                    mov si, VBEStuff_get_controller_info_print_msg1
+   938 00000DD8 E8BEF2                      call _printstr
+   939                                  
+   940 00000DDB A1[E60F]                    mov ax, [VBE_info_block_video_mode_segment]
+   941 00000DDE E8E9F7                      call print_ax
+   942 00000DE1 B40E                        mov ah, 0xE
+   943 00000DE3 B03A                        mov al, ':'
+   944 00000DE5 CD10                        int 0x10
+   945 00000DE7 A1[E40F]                    mov ax, [VBE_info_block_video_mode_offset]
+   946 00000DEA E8DDF7                      call print_ax
+   947                                  
+   948 00000DED B80D0E                      mov ax, 0x0E0D
+   949 00000DF0 CD10                        int 0x10
+   950 00000DF2 B80A0E                      mov ax, 0x0E0A
+   951 00000DF5 CD10                        int 0x10
+   952                                  
+   953                                      ;iter mode numbers and find the good one
+   954                                      ;get start of modes array and put into fs:si
+   955 00000DF7 A1[E60F]                    mov ax, [VBE_info_block_video_mode_segment] ;make sure fs is the correct value
+   956 00000DFA 8EE0                        mov fs, ax
+   957 00000DFC 8B36[E40F]                  mov si, [VBE_info_block_video_mode_offset]
+   958                                  VBEStuff_iter_modes_loop:
+   959 00000E00 648B04                      mov ax, fs:[si] ;ax = current mode number
+   960                                  
+   961 00000E03 50                          push ax
+   962 00000E04 0FA0                        push fs
+   963 00000E06 56                          push si
+   964                                      ;now print mode in text form
+   965 00000E07 E82500                      call print_VBE_mode_text
+   966 00000E0A 5E                          pop si
+   967 00000E0B 0FA1                        pop fs
+   968 00000E0D 58                          pop ax
+   969                                  
+   970                                      ;if mode number is 0xFFFF, exit program
+   971 00000E0E 83F8FF                      cmp ax, 0xFFFF
+   972 00000E11 740B                        je VBEStuff_iter_modes_exit
+   973                                  
+   974                                      ;BRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR BOMBARDIRO CROCODILO
+   975                                      
+   976                                      ;increment si
+   977 00000E13 83C602                      add si, 2
+   978                                      ;wait a tiny bit of time
+   979 00000E16 B90001                      mov cx, 0x100
+   980 00000E19 E8A9F2                      call _wait
+   981                                  
+   982 00000E1C EBE2                        jmp VBEStuff_iter_modes_loop
+   983                                  VBEStuff_iter_modes_exit:
+   984                                      ;print best mode number
+   985 00000E1E 31C0                        xor ax, ax
+   986 00000E20 8ED8                        mov ds, ax
+   987 00000E22 BE[AE0C]                    mov si, VBEStuff_iter_modes_best_mode_msg
+   988 00000E25 E871F2                      call _printstr
+   989                                  
+   990 00000E28 A1[E70E]                    mov ax, [check_VBE_mode_best_mode_number]
+   991 00000E2B E80100                      call print_VBE_mode_text
+   992                                  
+   993 00000E2E C3                          ret
+   994                                  
    995                                  
    996                                  
    997                                  
    998                                  
    999                                  
-  1000                                  
-  1001                                  
-  1002                                  
-  1003                                  print_VBE_mode_text:
-  1004                                      ;print value in ax
-  1005 00000E17 E8B0F7                      call print_ax
-  1006                                  
-  1007                                      ;print space
-  1008 00000E1A 89C3                        mov bx, ax
-  1009 00000E1C B8200E                      mov ax, 0x0E20
-  1010 00000E1F CD10                        int 0x10
-  1011 00000E21 89D8                        mov ax, bx
-  1012                                  
-  1013                                      ;if mode number is 0xFFFF, exit program
-  1014 00000E23 83F8FF                      cmp ax, 0xFFFF
-  1015 00000E26 746D                        je print_VBE_mode_text_end
+  1000                                  print_VBE_mode_text:
+  1001                                      ;save mode number here
+  1002 00000E2F A3[D80E]                    mov [current_mode_number], ax
+  1003                                  
+  1004                                      ;if mode number is 0xFFFF, exit program
+  1005 00000E32 83F8FF                      cmp ax, 0xFFFF
+  1006 00000E35 0F849E00                    je print_VBE_mode_text_end
+  1007                                  
+  1008                                      ;print value in ax
+  1009 00000E39 E88EF7                      call print_ax
+  1010                                  
+  1011                                      ;print space
+  1012 00000E3C 89C3                        mov bx, ax
+  1013 00000E3E B8200E                      mov ax, 0x0E20
+  1014 00000E41 CD10                        int 0x10
+  1015 00000E43 89D8                        mov ax, bx
   1016                                  
   1017                                      ;now get mode info
-  1018 00000E28 31DB                        xor bx, bx
-  1019 00000E2A 8EDB                        mov ds, bx
+  1018 00000E45 31DB                        xor bx, bx
+  1019 00000E47 8EDB                        mov ds, bx
   1020                                  
-  1021 00000E2C 89C1                        mov cx, ax ;cx = mode number
-  1022 00000E2E B8014F                      mov ax, 0x4F01 ;scancode
+  1021 00000E49 89C1                        mov cx, ax ;cx = mode number
+  1022 00000E4B B8014F                      mov ax, 0x4F01 ;scancode
   1023                                      ;es:di = 256b buffer
-  1024 00000E31 31D2                        xor dx, dx
-  1025 00000E33 8EC2                        mov es, dx
-  1026 00000E35 BF[0211]                    mov di, VBE_mode_info_block_start
-  1027 00000E38 CD10                        int 0x10
-  1028 00000E3A 83F84F                      cmp ax, 0x004F
-  1029 00000E3D 0F8526FF                    jne VBEStuff_get_mode_info_fail
+  1024 00000E4E 31D2                        xor dx, dx
+  1025 00000E50 8EC2                        mov es, dx
+  1026 00000E52 BF[D611]                    mov di, VBE_mode_info_block_start
+  1027 00000E55 CD10                        int 0x10
+  1028 00000E57 83F84F                      cmp ax, 0x004F
+  1029 00000E5A 0F8511FF                    jne VBEStuff_get_mode_info_fail
   1030                                  
   1031                                  
   1032                                      ;now print out width and height
-  1033 00000E41 31C0                        xor ax, ax
-  1034 00000E43 8ED8                        mov ds, ax
-  1035 00000E45 A1[1411]                    mov ax, [VBE_mode_info_block_width]
-  1036 00000E48 E8D9F7                      call print_ax_decimal
-  1037 00000E4B B40E                        mov ah, 0xE
-  1038 00000E4D B078                        mov al, 'x'
-  1039 00000E4F CD10                        int 0x10
-  1040 00000E51 A1[1611]                    mov ax, [VBE_mode_info_block_height]
-  1041 00000E54 E8CDF7                      call print_ax_decimal
-  1042 00000E57 B8200E                      mov ax, 0x0E20
-  1043 00000E5A CD10                        int 0x10
+  1033 00000E5E 31C0                        xor ax, ax
+  1034 00000E60 8ED8                        mov ds, ax
+  1035 00000E62 A1[E811]                    mov ax, [VBE_mode_info_block_width]
+  1036 00000E65 E8BCF7                      call print_ax_decimal
+  1037 00000E68 B40E                        mov ah, 0xE
+  1038 00000E6A B078                        mov al, 'x'
+  1039 00000E6C CD10                        int 0x10
+  1040 00000E6E A1[EA11]                    mov ax, [VBE_mode_info_block_height]
+  1041 00000E71 E8B0F7                      call print_ax_decimal
+  1042 00000E74 B8200E                      mov ax, 0x0E20
+  1043 00000E77 CD10                        int 0x10
   1044                                      ;print space
-  1045 00000E5C B8200E                      mov ax, 0x0E20
-  1046 00000E5F CD10                        int 0x10
+  1045 00000E79 B8200E                      mov ax, 0x0E20
+  1046 00000E7C CD10                        int 0x10
   1047                                      ;print if it supports linear framebuffer or not
-  1048 00000E61 8B1E[0211]                  mov bx, [VBE_mode_info_block_attributes]
-  1049 00000E65 81E38000                    and bx, 0b10000000 ;if bit 7 is 1 it supports
-  1050 00000E69 C1EB06                      shr bx, 6
-  1051 00000E6C 81C3[2E0D]                  add bx, VBE_mode_info_block_fb_support
-  1052 00000E70 31C0                        xor ax, ax
-  1053 00000E72 8ED8                        mov ds, ax
-  1054 00000E74 8B37                        mov si, [bx] ;pointer array shenanigans
-  1055 00000E76 E820F2                      call _printstr
+  1048 00000E7E 8B1E[D611]                  mov bx, [VBE_mode_info_block_attributes]
+  1049 00000E82 81E38000                    and bx, 0b10000000 ;if bit 7 is 1 it supports
+  1050 00000E86 C1EB06                      shr bx, 6
+  1051 00000E89 81C3[BC0C]                  add bx, VBE_mode_info_block_fb_support
+  1052 00000E8D 31C0                        xor ax, ax
+  1053 00000E8F 8ED8                        mov ds, ax
+  1054 00000E91 8B37                        mov si, [bx] ;pointer array shenanigans
+  1055 00000E93 E803F2                      call _printstr
   1056                                      ;print space and msg
-  1057 00000E79 31C0                        xor ax, ax
-  1058 00000E7B 8ED8                        mov ds, ax
-  1059 00000E7D BE[270D]                    mov si, print_VBE_mode_text_msg
-  1060 00000E80 E816F2                      call _printstr
+  1057 00000E96 31C0                        xor ax, ax
+  1058 00000E98 8ED8                        mov ds, ax
+  1059 00000E9A BE[9B0C]                    mov si, print_VBE_mode_text_msg
+  1060 00000E9D E8F9F1                      call _printstr
   1061                                      ;print bits per pixel
-  1062 00000E83 31C0                        xor ax, ax
-  1063 00000E85 A0[1D11]                    mov al, [VBE_mode_info_block_bpp]
-  1064 00000E88 E899F7                      call print_ax_decimal
-  1065                                  
-  1066 00000E8B B80D0E                      mov ax, 0x0E0D
-  1067 00000E8E CD10                        int 0x10
-  1068 00000E90 B80A0E                      mov ax, 0x0E0A
-  1069 00000E93 CD10                        int 0x10
-  1070                                  print_VBE_mode_text_end:
-  1071 00000E95 C3                          ret
-  1072                                  
-  1073                                  
-  1074                                  
-  1075                                  
-  1076                                  
-  1077                                  
-  1078                                  
-  1079                                  
-  1080                                  
-  1081                                  
-  1082                                  boot_pmode:
-  1083 00000E96 31C0                        xor ax, ax
-  1084 00000E98 8ED8                        mov ds, ax
-  1085 00000E9A BE[7B07]                    mov si, boot_pmode_msg
-  1086 00000E9D E8F9F1                      call _printstr
-  1087                                  
-  1088 00000EA0 E849FD                      call _kernel_load
-  1089                                  
-  1090 00000EA3 31C0                        xor ax, ax
-  1091 00000EA5 8ED8                        mov ds, ax
-  1092 00000EA7 BE[9107]                    mov si, kernel_loaded_msg
-  1093 00000EAA E8ECF1                      call _printstr
+  1062 00000EA0 31C0                        xor ax, ax
+  1063 00000EA2 A0[EF11]                    mov al, [VBE_mode_info_block_bpp]
+  1064 00000EA5 E87CF7                      call print_ax_decimal
+  1065                                      ;print space and msg
+  1066 00000EA8 31C0                        xor ax, ax
+  1067 00000EAA 8ED8                        mov ds, ax
+  1068 00000EAC BE[A90C]                    mov si, print_VBE_mode_text_msg2
+  1069 00000EAF E8E7F1                      call _printstr
+  1070                                      ;print memory model
+  1071 00000EB2 31C0                        xor ax, ax
+  1072 00000EB4 A0[F111]                    mov al, [VBE_mode_info_block_memory_model]
+  1073 00000EB7 E86AF7                      call print_ax_decimal
+  1074                                      ;print space and msg
+  1075 00000EBA 31C0                        xor ax, ax
+  1076 00000EBC 8ED8                        mov ds, ax
+  1077 00000EBE BE[A10C]                    mov si, print_VBE_mode_text_msg1
+  1078 00000EC1 E8D5F1                      call _printstr
+  1079                                      ;print pitch
+  1080 00000EC4 A1[E611]                    mov ax, [VBE_mode_info_block_pitch]
+  1081 00000EC7 E85AF7                      call print_ax_decimal
+  1082                                  
+  1083                                      ;now check if the mode is actually good
+  1084 00000ECA E82200                      call check_VBE_mode
+  1085                                  
+  1086 00000ECD B80D0E                      mov ax, 0x0E0D
+  1087 00000ED0 CD10                        int 0x10
+  1088 00000ED2 B80A0E                      mov ax, 0x0E0A
+  1089 00000ED5 CD10                        int 0x10
+  1090                                      
+  1091                                  print_VBE_mode_text_end:
+  1092 00000ED7 C3                          ret
+  1093                                  
   1094                                  
-  1095 00000EAD B90030                      mov cx, 0x3000
-  1096 00000EB0 E812F2                      call _wait
+  1095                                  
+  1096                                  
   1097                                  
-  1098 00000EB3 B93200                      mov cx, 50
-  1099                                  clear_loop:
-  1100 00000EB6 B80D0E                      mov ax, 0x0E0D
-  1101 00000EB9 CD10                        int 0x10
-  1102 00000EBB B80A0E                      mov ax, 0x0E0A
-  1103 00000EBE CD10                        int 0x10
-  1104 00000EC0 E2F4                        loop clear_loop
-  1105                                      
-  1106                                      ;set new graphics mode
-  1107                                  
-  1108                                      ;Mode 3h
-  1109                                      ;VGA 80x25 text mode
-  1110 00000EC2 B80300                      mov ax, 0x0003 ;ah = 0(function code), al = video mode flag
-  1111 00000EC5 CD10                        int 0x10 ;bios call video services
-  1112                                      ;disable cursor
-  1113 00000EC7 B401                        mov ah, 0x01
-  1114 00000EC9 B90020                      mov cx, 0x2000 ;disable cursor
-  1115 00000ECC CD10                        int 0x10 ;int 0x10, 1: set cursor type
-  1116                                  
-  1117                                      ;Mode 12h
-  1118                                      ;VGA 640x480 16 color
-  1119                                      ;mov ax, 0x0012 ;ah = 0(function code), al = video mode flag
-  1120                                      ;int 0x10 ;bios call video services
+  1098                                  
+  1099                                  
+  1100                                  
+  1101                                  
+  1102 00000ED8 0000                    current_mode_number dw 0
+  1103                                  
+  1104 00000EDA 2076616C696400          check_VBE_mode_msg db ' valid', 0
+  1105 00000EE1 206265737400            check_VBE_mode_msg1 db ' best', 0
+  1106                                  
+  1107 00000EE7 0000                    check_VBE_mode_best_mode_number dw 0
+  1108                                  
+  1109 00000EE9 0000                    check_VBE_mode_best_area_high dw 0
+  1110 00000EEB 0000                    check_VBE_mode_best_area_low dw 0
+  1111                                  
+  1112 00000EED 0000                    check_VBE_mode_best_screen_width dw 0
+  1113                                  
+  1114                                  check_VBE_mode:
+  1115                                      
+  1116                                      ;if LFB is false, exit
+  1117 00000EEF A1[D611]                    mov ax, [VBE_mode_info_block_attributes]
+  1118 00000EF2 258000                      and ax, 0b10000000 ;if bit 7 is 1 it supports
+  1119 00000EF5 09C0                        or ax, ax
+  1120 00000EF7 7470                        jz check_VBE_mode_exit
   1121                                  
-  1122                                      ;VBE graphics
-  1123 00000ECE E8A7FE                      call VBEStuff
-  1124                                  
-  1125 00000ED1 FA                          cli
-  1126 00000ED2 0F0116[E60B]                lgdt [GDT_descriptor] ;load GDT
-  1127                                      
-  1128                                      ;change last bit of cr0 to 1
-  1129 00000ED7 0F20C0                      mov eax, cr0
-  1130 00000EDA 6683C801                    or eax, 1
-  1131 00000EDE 0F22C0                      mov cr0, eax
-  1132                                      
-  1133                                      ;PROTECTED MODE!
-  1134                                      ;far jump to code segment
-  1135 00000EE1 EA[E60E]0800                jmp CODE_SEG:pmode
-  1136                                  
-  1137                                  BITS 32
-  1138                                  pmode:
-  1139 00000EE6 66B81000                    mov ax, DATA_SEG ;setup segments
-  1140 00000EEA 8ED8                        mov ds, ax
-  1141 00000EEC 8ED0                        mov ss, ax
-  1142 00000EEE 8EC0                        mov es, ax
-  1143 00000EF0 8EE0                        mov fs, ax
-  1144 00000EF2 8EE8                        mov gs, ax
-  1145 00000EF4 BDFFFF0700                  mov ebp, 0x7FFFF ;stack
-  1146 00000EF9 89EC                        mov esp, ebp
-  1147                                  
-  1148                                      ;jump to loaded kernel
-  1149 00000EFB E9(00000100)                jmp 0x10000
-  1150 00000F00 EBFE                        jmp $
-  1151                                  
-  1152                                  
-  1153                                  
-  1154                                  
+  1122                                      ;if mm is not 6, exit
+  1123 00000EF9 31C0                        xor ax, ax
+  1124 00000EFB A0[F111]                    mov al, [VBE_mode_info_block_memory_model]
+  1125 00000EFE 3C06                        cmp al, 6
+  1126 00000F00 7567                        jne check_VBE_mode_exit
+  1127                                  
+  1128                                      ;if bpp is not 32, exit
+  1129 00000F02 31C0                        xor ax, ax
+  1130 00000F04 A0[EF11]                    mov al, [VBE_mode_info_block_bpp]
+  1131 00000F07 3C20                        cmp al, 32
+  1132 00000F09 755E                        jne check_VBE_mode_exit
+  1133                                  
+  1134                                      ;print valid
+  1135 00000F0B 31C0                        xor ax, ax
+  1136 00000F0D 8ED8                        mov ds, ax
+  1137 00000F0F BE[DA0E]                    mov si, check_VBE_mode_msg
+  1138 00000F12 E884F1                      call _printstr
+  1139                                  
+  1140                                  
+  1141                                      ;get current mode's area
+  1142 00000F15 A1[E811]                    mov ax, [VBE_mode_info_block_width]
+  1143 00000F18 8B1E[EA11]                  mov bx, [VBE_mode_info_block_height]
+  1144 00000F1C F7E3                        mul bx ;ax * bx = dx:ax, 32-bit multiplication
+  1145                                      ;compare high word of current with best high word
+  1146 00000F1E 8B1E[E90E]                  mov bx, [check_VBE_mode_best_area_high]
+  1147 00000F22 39DA                        cmp dx, bx
+  1148 00000F24 7C43                        jl check_VBE_mode_exit ;if current < highest, nuh uh
+  1149 00000F26 7F19                        jg check_VBE_mode_update ;if current > highest, update values
+  1150                                      ;if equal, check low word
+  1151 00000F28 8B1E[EB0E]                  mov bx, [check_VBE_mode_best_area_low]
+  1152 00000F2C 39DA                        cmp dx, bx
+  1153 00000F2E 7C39                        jl check_VBE_mode_exit ;if current < highest, nuh uh
+  1154 00000F30 7F0F                        jg check_VBE_mode_update ;if current > highest, update values
   1155                                  
-  1156                                  
-  1157                                  
-  1158                                  
-  1159                                  
-  1160                                  
-  1161                                  ; TOTAL of 512 bytes
-  1162                                  VBE_info_block_start:
-  1163 00000F02 4E45494E                    VBE_info_block_signature db 'NEIN'
-  1164 00000F06 0000                        VBE_info_block_version dw 0
-  1165 00000F08 00000000                    VBE_info_block_OEM_name_ptr dd 0 ;far ptr 32b
-  1166 00000F0C 00000000                    VBE_info_block_capabilities dd 0
-  1167 00000F10 0000                        VBE_info_block_video_mode_offset dw 0
-  1168 00000F12 0000                        VBE_info_block_video_mode_segment dw 0
-  1169 00000F14 0000                        VBE_info_block_total_memory dw 0 ;count of 64k blocks
-  1170 00000F16 00<rep 1ECh>                times 492 db 0 ;reserved
-  1171                                  VBE_info_block_end:
-  1172                                  
-  1173                                  ; TOTAL of 256 bytes
-  1174                                  VBE_mode_info_block_start:
-  1175 00001102 0000                        VBE_mode_info_block_attributes dw 0 ;deprecated, if bit 7 is 1 supports a linear frame buffer
-  1176 00001104 00                          VBE_mode_info_block_window_a db 0 ;deprecated
-  1177 00001105 00                          VBE_mode_info_block_window_b db 0 ;deprecated
-  1178 00001106 0000                        VBE_mode_info_block_granularity dw 0 ;in KB, deprecated
-  1179 00001108 0000                        VBE_mode_info_block_window_size dw 0 ;in KB
-  1180 0000110A 0000                        VBE_mode_info_block_segment_a dw 0 ;0 if not supported
-  1181 0000110C 0000                        VBE_mode_info_block_segment_b dw 0 ;0 if not supported
-  1182 0000110E 00000000                    VBE_mode_info_block_win_func_ptr dd 0  ;deprecated, used to switch banks in pmode without going to real
-  1183 00001112 0000                        VBE_mode_info_block_pitch dw 0 ;bytes of vram to skip to go down a line
-  1184                                  
-  1185 00001114 0000                        VBE_mode_info_block_width dw 0 ;in pixels(graphics)/columns(text)
-  1186 00001116 0000                        VBE_mode_info_block_height dw 0 ;in pixels(graphics)/columns(text)
-  1187 00001118 0000                        VBE_mode_info_block_char_width dw 0 ;in pixels, unused
-  1188 0000111A 0000                        VBE_mode_info_block_char_height dw 0 ;in pixels, unused
-  1189 0000111C 00                          VBE_mode_info_block_planes_count db 0
-  1190 0000111D 00                          VBE_mode_info_block_bpp db 0 ;bits per pixel
-  1191 0000111E 00                          VBE_mode_info_block_banks_count db 0 ;deprecated, total amount of banks in the mode
-  1192 0000111F 00                          VBE_mode_info_block_memory_model db 0
-  1193 00001120 00                          VBE_mode_info_block_bank_size db 0 ;in KB, deprecated, size of a bank
-  1194 00001121 00                          VBE_mode_info_block_image_pages_count db 0 ;count - 1
-  1195 00001122 00                          VBE_mode_info_block_reserved0 db 0 ;0 in revision 1.0-2.0, 1 in revision 3.0
+  1156                                      ;if still equal, that means it's the exact same resolution
+  1157                                      ;check if current screen width is more than best screen width
+  1158 00000F32 A1[E811]                    mov ax, [VBE_mode_info_block_width]
+  1159 00000F35 8B1E[ED0E]                  mov bx, [check_VBE_mode_best_screen_width]
+  1160 00000F39 39D8                        cmp ax, bx
+  1161 00000F3B 7C2C                        jl check_VBE_mode_exit ;if current < highest, nuh uh
+  1162 00000F3D 7F02                        jg check_VBE_mode_update ;if current > highest, update values
+  1163                                  
+  1164                                  
+  1165 00000F3F EB28                        jmp check_VBE_mode_exit
+  1166                                  check_VBE_mode_update:
+  1167                                      ;restore current mode number
+  1168 00000F41 8B1E[D80E]                  mov bx, [current_mode_number]
+  1169                                      ;update best mode number
+  1170 00000F45 891E[E70E]                  mov [check_VBE_mode_best_mode_number], bx
+  1171                                      ;update best area
+  1172 00000F49 A1[E811]                    mov ax, [VBE_mode_info_block_width]
+  1173 00000F4C 8B1E[EA11]                  mov bx, [VBE_mode_info_block_height]
+  1174 00000F50 F7E3                        mul bx ;ax * bx = dx:ax, 32-bit multiplication
+  1175 00000F52 8916[E90E]                  mov [check_VBE_mode_best_area_high], dx
+  1176 00000F56 A3[EB0E]                    mov [check_VBE_mode_best_area_low], ax
+  1177                                      ;update best screen width
+  1178 00000F59 A1[E811]                    mov ax, [VBE_mode_info_block_width]
+  1179 00000F5C A3[ED0E]                    mov [check_VBE_mode_best_screen_width], ax
+  1180                                  
+  1181                                      ;print best
+  1182 00000F5F 31C0                        xor ax, ax
+  1183 00000F61 8ED8                        mov ds, ax
+  1184 00000F63 BE[E10E]                    mov si, check_VBE_mode_msg1
+  1185 00000F66 E830F1                      call _printstr
+  1186                                  check_VBE_mode_exit:
+  1187 00000F69 C3                          ret
+  1188                                  
+  1189                                  
+  1190                                  
+  1191                                  
+  1192                                  
+  1193                                  
+  1194                                  
+  1195                                  
   1196                                  
-  1197                                      ;size and pos of masks
-  1198 00001123 00                          VBE_mode_info_block_red_mask db 0
-  1199 00001124 00                          VBE_mode_info_block_red_pos db 0
-  1200 00001125 00                          VBE_mode_info_block_green_mask db 0
-  1201 00001126 00                          VBE_mode_info_block_green_pos db 0
-  1202 00001127 00                          VBE_mode_info_block_blue_mask db 0
-  1203 00001128 00                          VBE_mode_info_block_blue_pos db 0
-  1204 00001129 00                          VBE_mode_info_block_reserved_mask db 0
-  1205 0000112A 00                          VBE_mode_info_block_reserved_pos db 0
-  1206 0000112B 00                          VBE_mode_info_block_direct_color_attributes db 0
-  1207                                  
-  1208                                      ;added in revision 2.0
-  1209 0000112C 00000000                    VBE_mode_info_block_framebuffer dd 0 ;physical address of the framebuffer, write here
-  1210 00001130 00000000                    VBE_mode_info_block_off_screen_mem_offset dd 0 
-  1211 00001134 0000                        VBE_mode_info_block_off_screen_mem_size dw 0 ;in KB, size of memory in framebuffer but not being displayed on the screen
-  1212 00001136 CE                          VBE_mode_info_block_reserved db 206 ;available in revision 3.0, useless
-  1213                                  VBE_mode_info_block_end:
-  1214                                  
+  1197                                  
+  1198                                  
+  1199                                  
+  1200                                  
+  1201                                  
+  1202                                  
+  1203                                  boot_pmode:
+  1204 00000F6A 31C0                        xor ax, ax
+  1205 00000F6C 8ED8                        mov ds, ax
+  1206 00000F6E BE[7B07]                    mov si, boot_pmode_msg
+  1207 00000F71 E825F1                      call _printstr
+  1208                                  
+  1209 00000F74 E879FD                      call _kernel_load
+  1210                                  
+  1211 00000F77 31C0                        xor ax, ax
+  1212 00000F79 8ED8                        mov ds, ax
+  1213 00000F7B BE[9107]                    mov si, kernel_loaded_msg
+  1214 00000F7E E818F1                      call _printstr
   1215                                  
-  1216                                  
-  1217                                  
-  1218 00001137 00<rep 16C9h>           times 10240-($-$$) db 0 ;total length of binary 20 sector
-  1219                                                          ;total length of disk 22 sectors, 1:code, 2-3:partition info 4-10:codedb 0x69
+  1216 00000F81 B90030                      mov cx, 0x3000
+  1217 00000F84 E83EF1                      call _wait
+  1218                                  
+  1219 00000F87 B93200                      mov cx, 50
+  1220                                  clear_loop:
+  1221 00000F8A B80D0E                      mov ax, 0x0E0D
+  1222 00000F8D CD10                        int 0x10
+  1223 00000F8F B80A0E                      mov ax, 0x0E0A
+  1224 00000F92 CD10                        int 0x10
+  1225 00000F94 E2F4                        loop clear_loop
+  1226                                      
+  1227                                      ;set new graphics mode
+  1228                                  
+  1229                                      ;Mode 3h
+  1230                                      ;VGA 80x25 text mode
+  1231 00000F96 B80300                      mov ax, 0x0003 ;ah = 0(function code), al = video mode flag
+  1232 00000F99 CD10                        int 0x10 ;bios call video services
+  1233                                      ;disable cursor
+  1234 00000F9B B401                        mov ah, 0x01
+  1235 00000F9D B90020                      mov cx, 0x2000 ;disable cursor
+  1236 00000FA0 CD10                        int 0x10 ;int 0x10, 1: set cursor type
+  1237                                  
+  1238                                      ;Mode 12h
+  1239                                      ;VGA 640x480 16 color
+  1240                                      ;mov ax, 0x0012 ;ah = 0(function code), al = video mode flag
+  1241                                      ;int 0x10 ;bios call video services
+  1242                                  
+  1243                                      ;VBE graphics
+  1244 00000FA2 E8DBFD                      call VBEStuff
+  1245                                  
+  1246 00000FA5 FA                          cli
+  1247 00000FA6 0F0116[EA0C]                lgdt [GDT_descriptor] ;load GDT
+  1248                                      
+  1249                                      ;change last bit of cr0 to 1
+  1250 00000FAB 0F20C0                      mov eax, cr0
+  1251 00000FAE 6683C801                    or eax, 1
+  1252 00000FB2 0F22C0                      mov cr0, eax
+  1253                                      
+  1254                                      ;PROTECTED MODE!
+  1255                                      ;far jump to code segment
+  1256 00000FB5 EA[BA0F]0800                jmp CODE_SEG:pmode
+  1257                                  
+  1258                                  BITS 32
+  1259                                  pmode:
+  1260 00000FBA 66B81000                    mov ax, DATA_SEG ;setup segments
+  1261 00000FBE 8ED8                        mov ds, ax
+  1262 00000FC0 8ED0                        mov ss, ax
+  1263 00000FC2 8EC0                        mov es, ax
+  1264 00000FC4 8EE0                        mov fs, ax
+  1265 00000FC6 8EE8                        mov gs, ax
+  1266 00000FC8 BDFFFF0700                  mov ebp, 0x7FFFF ;stack
+  1267 00000FCD 89EC                        mov esp, ebp
+  1268                                  
+  1269                                      ;jump to loaded kernel
+  1270 00000FCF E9(00000100)                jmp 0x10000
+  1271 00000FD4 EBFE                        jmp $
+  1272                                  
+  1273                                  
+  1274                                  
+  1275                                  
+  1276                                  
+  1277                                  ; TOTAL of 512 bytes
+  1278                                  VBE_info_block_start:
+  1279 00000FD6 4E45494E                    VBE_info_block_signature db 'NEIN'
+  1280 00000FDA 0000                        VBE_info_block_version dw 0
+  1281 00000FDC 00000000                    VBE_info_block_OEM_name_ptr dd 0 ;far ptr 32b
+  1282 00000FE0 00000000                    VBE_info_block_capabilities dd 0
+  1283 00000FE4 0000                        VBE_info_block_video_mode_offset dw 0
+  1284 00000FE6 0000                        VBE_info_block_video_mode_segment dw 0
+  1285 00000FE8 0000                        VBE_info_block_total_memory dw 0 ;count of 64k blocks
+  1286 00000FEA 00<rep 1ECh>                times 492 db 0 ;reserved
+  1287                                  VBE_info_block_end:
+  1288                                  
+  1289                                  ; TOTAL of 256 bytes
+  1290                                  VBE_mode_info_block_start:
+  1291 000011D6 0000                        VBE_mode_info_block_attributes dw 0 ;deprecated, if bit 7 is 1 supports a linear frame buffer
+  1292 000011D8 00                          VBE_mode_info_block_window_a db 0 ;deprecated
+  1293 000011D9 00                          VBE_mode_info_block_window_b db 0 ;deprecated
+  1294 000011DA 0000                        VBE_mode_info_block_granularity dw 0 ;in KB, deprecated
+  1295 000011DC 0000                        VBE_mode_info_block_window_size dw 0 ;in KB
+  1296 000011DE 0000                        VBE_mode_info_block_segment_a dw 0 ;0 if not supported
+  1297 000011E0 0000                        VBE_mode_info_block_segment_b dw 0 ;0 if not supported
+  1298 000011E2 00000000                    VBE_mode_info_block_win_func_ptr dd 0  ;deprecated, used to switch banks in pmode without going to real
+  1299 000011E6 0000                        VBE_mode_info_block_pitch dw 0 ;bytes of vram to skip to go down a line
+  1300                                  
+  1301 000011E8 0000                        VBE_mode_info_block_width dw 0 ;in pixels(graphics)/columns(text)
+  1302 000011EA 0000                        VBE_mode_info_block_height dw 0 ;in pixels(graphics)/columns(text)
+  1303 000011EC 00                          VBE_mode_info_block_char_width db 0 ;in pixels, unused
+  1304 000011ED 00                          VBE_mode_info_block_char_height db 0 ;in pixels, unused
+  1305 000011EE 00                          VBE_mode_info_block_planes_count db 0
+  1306 000011EF 00                          VBE_mode_info_block_bpp db 0 ;bits per pixel
+  1307 000011F0 00                          VBE_mode_info_block_banks_count db 0 ;deprecated, total amount of banks in the mode
+  1308 000011F1 00                          VBE_mode_info_block_memory_model db 0
+  1309 000011F2 00                          VBE_mode_info_block_bank_size db 0 ;in KB, deprecated, size of a bank
+  1310 000011F3 00                          VBE_mode_info_block_image_pages_count db 0 ;count - 1
+  1311 000011F4 00                          VBE_mode_info_block_reserved0 db 0 ;0 in revision 1.0-2.0, 1 in revision 3.0
+  1312                                  
+  1313                                      ;size and pos of masks
+  1314 000011F5 00                          VBE_mode_info_block_red_mask db 0
+  1315 000011F6 00                          VBE_mode_info_block_red_pos db 0
+  1316 000011F7 00                          VBE_mode_info_block_green_mask db 0
+  1317 000011F8 00                          VBE_mode_info_block_green_pos db 0
+  1318 000011F9 00                          VBE_mode_info_block_blue_mask db 0
+  1319 000011FA 00                          VBE_mode_info_block_blue_pos db 0
+  1320 000011FB 00                          VBE_mode_info_block_reserved_mask db 0
+  1321 000011FC 00                          VBE_mode_info_block_reserved_pos db 0
+  1322 000011FD 00                          VBE_mode_info_block_direct_color_attributes db 0
+  1323                                  
+  1324                                      ;added in revision 2.0
+  1325 000011FE 00000000                    VBE_mode_info_block_framebuffer dd 0 ;physical address of the framebuffer, write here
+  1326 00001202 00000000                    VBE_mode_info_block_off_screen_mem_offset dd 0 
+  1327 00001206 0000                        VBE_mode_info_block_off_screen_mem_size dw 0 ;in KB, size of memory in framebuffer but not being displayed on the screen
+  1328 00001208 CE                          VBE_mode_info_block_reserved db 206 ;available in revision 3.0, useless
+  1329                                  VBE_mode_info_block_end:
+  1330                                  
+  1331                                  
+  1332 00001209 00<rep 15F7h>           times 10240-($-$$) db 0 ;total length of binary 20 sector
+  1333                                                          ;total length of disk 22 sectors, 1:code, 2-3:partition info 4-10:codedb 0x69

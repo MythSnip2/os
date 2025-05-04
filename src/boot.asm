@@ -694,11 +694,30 @@ print_ax_decimal_end:
     dw 1109, 1245, 1480, 1661, 1865
     dw 2217, 2489, 2960, 3322, 3729
 
-
     kernel_load_fail db 'Kernel load failure, resetting...', 0xD, 0xA, 0
     kernel_load_fail_final db 'Kernel load failed, going back to real mode...', 0xD, 0xA, 0
     kernel_load_success db 'Kernel load success', 0xD, 0xA, 0
 
+    VBEStuff_get_controller_info_success_msg db "VBE get controller info success!", 0xD, 0xA, 0
+    VBEStuff_get_controller_info_fail_msg db "VBE get controller info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
+
+    VBEStuff_get_controller_info_print_msg db "VBE controller info:", 0xD, 0xA, 0
+    VBEStuff_get_controller_info_print_msg1 db 0xD, 0xA, "Video modes ptr(seg:off): ", 0
+
+    VBEStuff_get_mode_info_fail_msg db "VBE get mode info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
+
+    print_VBE_mode_text_msg db " bpp:", 0
+    print_VBE_mode_text_msg1 db " pitch:", 0
+    print_VBE_mode_text_msg2 db " mm:", 0
+
+    VBEStuff_iter_modes_best_mode_msg db "Best mode: ", 0xD, 0xA, 0
+    VBEStuff_iter_modes_best_mode_msg1 db "Switching to VBE graphics mode... ", 0xD, 0xA, 0
+
+    VBE_mode_info_block_fb_support dw VBE_mode_info_block_fb_support_f
+    dw VBE_mode_info_block_fb_support_t
+
+    VBE_mode_info_block_fb_support_t db "LFB: JA", 0
+    VBE_mode_info_block_fb_support_f db "LFB: NEIN", 0
 
 
 ;code segment descriptor
@@ -848,36 +867,6 @@ __kernel_load_fail_final:
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-    VBEStuff_get_controller_info_success_msg db "VBE get controller info success!", 0xD, 0xA, 0
-    VBEStuff_get_controller_info_fail_msg db "VBE get controller info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
-
-    VBEStuff_get_controller_info_print_msg db "VBE controller info:", 0xD, 0xA, 0
-    VBEStuff_get_controller_info_print_msg1 db 0xD, 0xA, "Video modes ptr(seg:off): ", 0
-
-    VBEStuff_get_mode_info_fail_msg db "VBE get mode info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
-
-    print_VBE_mode_text_msg db " bpp: ", 0
-
-    VBE_mode_info_block_fb_support dw VBE_mode_info_block_fb_support_f
-    dw VBE_mode_info_block_fb_support_t
-
-    VBE_mode_info_block_fb_support_t db "Linear FB: YUH UH", 0
-    VBE_mode_info_block_fb_support_f db "Linear FB: NUH UH", 0
-
-    
-
 ;FAILSTATES
 VBEStuff_get_controller_info_fail:
     xor ax, ax
@@ -965,7 +954,7 @@ VBEStuff:
     mov ax, [VBE_info_block_video_mode_segment] ;make sure fs is the correct value
     mov fs, ax
     mov si, [VBE_info_block_video_mode_offset]
-VBEStuff_iter_modes_loop: ;cannot change fs, si 
+VBEStuff_iter_modes_loop:
     mov ax, fs:[si] ;ax = current mode number
 
     push ax
@@ -991,6 +980,31 @@ VBEStuff_iter_modes_loop: ;cannot change fs, si
 
     jmp VBEStuff_iter_modes_loop
 VBEStuff_iter_modes_exit:
+    ;print best mode number
+    xor ax, ax
+    mov ds, ax
+    mov si, VBEStuff_iter_modes_best_mode_msg
+    call _printstr
+
+    mov ax, [check_VBE_mode_best_mode_number]
+    call print_VBE_mode_text
+
+    mov cx, 0x4000
+    call _wait
+
+    ;switch to the mode
+    xor ax, ax
+    mov ds, ax
+    mov si, VBEStuff_iter_modes_best_mode_msg1
+    call _printstr
+
+    mov cx, 0x4000
+    call _wait
+
+
+
+
+
     ret
 
 
@@ -998,9 +1012,14 @@ VBEStuff_iter_modes_exit:
 
 
 
-
-
 print_VBE_mode_text:
+    ;save mode number here
+    mov [current_mode_number], ax
+
+    ;if mode number is 0xFFFF, exit program
+    cmp ax, 0xFFFF
+    je print_VBE_mode_text_end
+
     ;print value in ax
     call print_ax
 
@@ -1009,10 +1028,6 @@ print_VBE_mode_text:
     mov ax, 0x0E20
     int 0x10
     mov ax, bx
-
-    ;if mode number is 0xFFFF, exit program
-    cmp ax, 0xFFFF
-    je print_VBE_mode_text_end
 
     ;now get mode info
     xor bx, bx
@@ -1062,13 +1077,126 @@ print_VBE_mode_text:
     xor ax, ax
     mov al, [VBE_mode_info_block_bpp]
     call print_ax_decimal
+    ;print space and msg
+    xor ax, ax
+    mov ds, ax
+    mov si, print_VBE_mode_text_msg2
+    call _printstr
+    ;print memory model
+    xor ax, ax
+    mov al, [VBE_mode_info_block_memory_model]
+    call print_ax_decimal
+    ;print space and msg
+    xor ax, ax
+    mov ds, ax
+    mov si, print_VBE_mode_text_msg1
+    call _printstr
+    ;print pitch
+    mov ax, [VBE_mode_info_block_pitch]
+    call print_ax_decimal
+
+    ;now check if the mode is actually good
+    call check_VBE_mode
 
     mov ax, 0x0E0D
     int 0x10
     mov ax, 0x0E0A
     int 0x10
+    
 print_VBE_mode_text_end:
     ret
+
+
+
+current_mode_number dw 0
+
+check_VBE_mode_msg db ' valid', 0
+check_VBE_mode_msg1 db ' best', 0
+
+check_VBE_mode_best_mode_number dw 0
+
+check_VBE_mode_best_area_high dw 0
+check_VBE_mode_best_area_low dw 0
+
+check_VBE_mode_best_screen_width dw 0
+
+check_VBE_mode:
+    
+    ;if LFB is false, exit
+    mov ax, [VBE_mode_info_block_attributes]
+    and ax, 0b10000000 ;if bit 7 is 1 it supports
+    or ax, ax
+    jz check_VBE_mode_exit
+
+    ;if mm is not 6, exit
+    xor ax, ax
+    mov al, [VBE_mode_info_block_memory_model]
+    cmp al, 6
+    jne check_VBE_mode_exit
+
+    ;if bpp is not 32, exit
+    xor ax, ax
+    mov al, [VBE_mode_info_block_bpp]
+    cmp al, 32
+    jne check_VBE_mode_exit
+
+    ;print valid
+    xor ax, ax
+    mov ds, ax
+    mov si, check_VBE_mode_msg
+    call _printstr
+
+    ;get current mode's area
+    mov ax, [VBE_mode_info_block_width]
+    mov bx, [VBE_mode_info_block_height]
+    mul bx ;ax * bx = dx:ax, 32-bit multiplication
+    ;compare high word of current with best high word
+    mov bx, [check_VBE_mode_best_area_high]
+    cmp dx, bx
+    jl check_VBE_mode_exit ;if current < highest, nuh uh
+    jg check_VBE_mode_update ;if current > highest, update values
+    ;if equal, check low word
+    mov bx, [check_VBE_mode_best_area_low]
+    cmp dx, bx
+    jl check_VBE_mode_exit ;if current < highest, nuh uh
+    jg check_VBE_mode_update ;if current > highest, update values
+
+    ;if still equal, that means it's the exact same resolution
+    ;check if current screen width is more than best screen width
+    mov ax, [VBE_mode_info_block_width]
+    mov bx, [check_VBE_mode_best_screen_width]
+    cmp ax, bx
+    jl check_VBE_mode_exit ;if current < highest, nuh uh
+    jg check_VBE_mode_update ;if current > highest, update values
+
+    jmp check_VBE_mode_exit
+check_VBE_mode_update:
+    ;restore current mode number
+    mov bx, [current_mode_number]
+    ;update best mode number
+    mov [check_VBE_mode_best_mode_number], bx
+    ;update best area
+    mov ax, [VBE_mode_info_block_width]
+    mov bx, [VBE_mode_info_block_height]
+    mul bx ;ax * bx = dx:ax, 32-bit multiplication
+    mov [check_VBE_mode_best_area_high], dx
+    mov [check_VBE_mode_best_area_low], ax
+    ;update best screen width
+    mov ax, [VBE_mode_info_block_width]
+    mov [check_VBE_mode_best_screen_width], ax
+
+    ;print best
+    xor ax, ax
+    mov ds, ax
+    mov si, check_VBE_mode_msg1
+    call _printstr
+check_VBE_mode_exit:
+    ret
+
+
+
+
+
 
 
 
@@ -1153,11 +1281,6 @@ pmode:
 
 
 
-
-
-
-
-
 ; TOTAL of 512 bytes
 VBE_info_block_start:
     VBE_info_block_signature db 'NEIN'
@@ -1184,8 +1307,8 @@ VBE_mode_info_block_start:
 
     VBE_mode_info_block_width dw 0 ;in pixels(graphics)/columns(text)
     VBE_mode_info_block_height dw 0 ;in pixels(graphics)/columns(text)
-    VBE_mode_info_block_char_width dw 0 ;in pixels, unused
-    VBE_mode_info_block_char_height dw 0 ;in pixels, unused
+    VBE_mode_info_block_char_width db 0 ;in pixels, unused
+    VBE_mode_info_block_char_height db 0 ;in pixels, unused
     VBE_mode_info_block_planes_count db 0
     VBE_mode_info_block_bpp db 0 ;bits per pixel
     VBE_mode_info_block_banks_count db 0 ;deprecated, total amount of banks in the mode
@@ -1211,8 +1334,6 @@ VBE_mode_info_block_start:
     VBE_mode_info_block_off_screen_mem_size dw 0 ;in KB, size of memory in framebuffer but not being displayed on the screen
     VBE_mode_info_block_reserved db 206 ;available in revision 3.0, useless
 VBE_mode_info_block_end:
-
-
 
 
 times 10240-($-$$) db 0 ;total length of binary 20 sector

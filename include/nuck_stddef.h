@@ -11,6 +11,7 @@ typedef unsigned int size_t;
 typedef int intptr_t;
 typedef unsigned int uintptr_t;
 
+
 typedef signed char int8_t;
 typedef unsigned char uint8_t;
 
@@ -19,6 +20,17 @@ typedef unsigned short uint16_t;
 
 typedef signed int int32_t;
 typedef unsigned int uint32_t;
+
+
+
+typedef unsigned char Byte;
+
+typedef unsigned short Word;
+
+typedef unsigned int Dword;
+
+
+
 
 #define JA 1
 #define NEIN 0

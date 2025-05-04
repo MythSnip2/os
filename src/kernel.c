@@ -34,7 +34,7 @@ void VGATextWriteChar(int x, int y, char c, unsigned char VGAColor){
     *(char*)location = c;
     *(char*)(location+1) = VGAColor;
 }
-void VGAprintString(int addr, char* str, unsigned char VGAColor){
+void VGAPrintString(int addr, char* str, unsigned char VGAColor){
     while(*str != false){
         if(*str == 0xA){
             addr = ((addr+79)/80)*80;
@@ -45,7 +45,7 @@ void VGAprintString(int addr, char* str, unsigned char VGAColor){
         str++;
     }
 }
-void VGAprintChars(int addr, char* str, int num, unsigned char VGAColor){
+void VGAPrintChars(int addr, char* str, int num, unsigned char VGAColor){
     for(int i=0;i<num;i++){
         if(*str == 0xA){
             addr = ((addr+79)/80)*80;
@@ -137,9 +137,9 @@ void VGADrawRect(int x1, int y1, int x2, int y2, bool fill, unsigned char VGACol
     }
 }
 
-
-
 void main(){
+    char* str = "   --- NUCK OS KERNEL RUNNING ---                                    ";
+    VGAPrintString(0, str, 0xD);
 
     struct VBE_info_block* VBEControllerInfo = (struct VBE_info_block*)(0x7C00 + 0xD51); //Fixed address
     struct VBE_mode_info_block* VBEModeInfo = (struct VBE_mode_info_block*)(0x7C00 + 0xF51); //Fixed address
@@ -151,9 +151,7 @@ void main(){
         vram[i * 3 + 2] = 0xFF; // Red -> bright red pixel
     }
 
-    VGATextWriteChar_addr(2, 'O', 0x0A);
-    VGATextWriteChar_addr(3, 'A', 0x0A);
-    VGATextWriteChar_addr(4, 'H', 0x0A);
+    
 
     return;
 }
