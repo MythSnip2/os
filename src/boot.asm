@@ -4,7 +4,6 @@ ORG 0x7C00
 
 start_boot:
 
-
     ;set positive direction DF=0
     cld
 
@@ -27,7 +26,6 @@ start_boot:
     ;set video mode to text mode(80x25)
     mov ax, 0x0003 ;ah = 0(function code), al = video mode flag
     int 0x10 ;bios call video services
-
 
     ;enable interrupts
     sti
@@ -193,9 +191,6 @@ __wait_innerloop:
 times 510-($-$$) db 0 ;510B excluding boot signature
 db 0x55, 0xAA
 ; end of first sector, 512B -----------------------------------------------------------------------------------------------
-; buffer sector(s)
-times 512 db 0
-
 
 
 main:
@@ -515,7 +510,6 @@ speaker_off:
     ret
 
 
-
 print_ax:
     pusha
 
@@ -619,10 +613,6 @@ print_ax_decimal_end:
     ret
 
 
-
-
-
-
     msg db 0xD, 0xA
     db 'F1: bios setup/restart/boot next', 0xD, 0xA
     db 'F2: restart (far jump to reset vector)', 0xD, 0xA
@@ -720,6 +710,18 @@ print_ax_decimal_end:
     VBE_mode_info_block_fb_support_f db "LFB: NEIN", 0
 
 
+    current_mode_number dw 0
+
+    check_VBE_mode_msg db ' valid', 0
+    check_VBE_mode_msg1 db ' best', 0
+
+    check_VBE_mode_best_mode_number dw 0
+
+    check_VBE_mode_best_area_high dw 0
+    check_VBE_mode_best_area_low dw 0
+
+    check_VBE_mode_best_screen_width dw 0
+
 ;code segment descriptor
 ;Base            32b: starting location of segment
 ;Limit           20b: size of limit
@@ -769,7 +771,7 @@ GDT_start:
         ;other + last 4 bits of limit
         db 0b11001111
         ;last 8 bits of base
-        db 0b00000000
+        db 0x00
     GDT_data:
         ;base: 0
         ;limit: 0xFFFFF
@@ -806,7 +808,7 @@ _kernel_load_loop:
     call _printstr
 
     ;Read (al) number of sectors from ch, dh, cl, drive dl, store in es:bx
-    mov ax, 0x0280 ;ah=scancode, Read sectors | al=number of sectors to read
+    mov ax, 0x0240 ;ah=scancode, Read sectors | al=number of sectors to read
     mov cx, 0x0015 ;ch=cylinder number CHS | cl=sector number CHS = 21 = 0x15
     xor dh, dh ;head number CHS
     mov dl, [diskNum] ;drive number
@@ -821,8 +823,10 @@ _kernel_load_loop:
     ;disk read success
     xor ax, ax
     mov ds, ax
+    mov es, ax
     mov si, kernel_load_success
     call _printstr
+    
     ret
 
 __kernel_load_fail:
@@ -970,12 +974,10 @@ VBEStuff_iter_modes_loop:
     cmp ax, 0xFFFF
     je VBEStuff_iter_modes_exit
 
-    ;BRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR BOMBARDIRO CROCODILO
-    
     ;increment si
     add si, 2
     ;wait a tiny bit of time
-    mov cx, 0x100
+    mov cx, 0x300
     call _wait
 
     jmp VBEStuff_iter_modes_loop
@@ -989,7 +991,7 @@ VBEStuff_iter_modes_exit:
     mov ax, [check_VBE_mode_best_mode_number]
     call print_VBE_mode_text
 
-    mov cx, 0x4000
+    mov cx, 0x1000
     call _wait
 
     ;switch to the mode
@@ -998,17 +1000,22 @@ VBEStuff_iter_modes_exit:
     mov si, VBEStuff_iter_modes_best_mode_msg1
     call _printstr
 
-    mov cx, 0x4000
+    mov cx, 0x1000
     call _wait
 
+    ;set video mode
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+    mov si, ax
+    mov di, ax
+    mov ax, 0x4F02
+    mov bx, [check_VBE_mode_best_mode_number]
+    int 0x10
 
-
-
-
+    mov cx, 0x1000
+    call _wait
     ret
-
-
-
 
 
 
@@ -1052,25 +1059,22 @@ print_VBE_mode_text:
     mov ah, 0xE
     mov al, 'x'
     int 0x10
+    xor ax, ax
+    mov ds, ax
     mov ax, [VBE_mode_info_block_height]
     call print_ax_decimal
     mov ax, 0x0E20
     int 0x10
-    ;print space
-    mov ax, 0x0E20
-    int 0x10
     ;print if it supports linear framebuffer or not
+    xor ax, ax
+    mov ds, ax
     mov bx, [VBE_mode_info_block_attributes]
     and bx, 0b10000000 ;if bit 7 is 1 it supports
     shr bx, 6
     add bx, VBE_mode_info_block_fb_support
-    xor ax, ax
-    mov ds, ax
     mov si, [bx] ;pointer array shenanigans
     call _printstr
     ;print space and msg
-    xor ax, ax
-    mov ds, ax
     mov si, print_VBE_mode_text_msg
     call _printstr
     ;print bits per pixel
@@ -1078,8 +1082,6 @@ print_VBE_mode_text:
     mov al, [VBE_mode_info_block_bpp]
     call print_ax_decimal
     ;print space and msg
-    xor ax, ax
-    mov ds, ax
     mov si, print_VBE_mode_text_msg2
     call _printstr
     ;print memory model
@@ -1095,30 +1097,20 @@ print_VBE_mode_text:
     mov ax, [VBE_mode_info_block_pitch]
     call print_ax_decimal
 
-    ;now check if the mode is actually good
+    ;now check if the mode is actually good & find best one
     call check_VBE_mode
 
     mov ax, 0x0E0D
     int 0x10
     mov ax, 0x0E0A
     int 0x10
-    
+
+    xor ax, ax
+    mov ds, ax
 print_VBE_mode_text_end:
     ret
 
 
-
-current_mode_number dw 0
-
-check_VBE_mode_msg db ' valid', 0
-check_VBE_mode_msg1 db ' best', 0
-
-check_VBE_mode_best_mode_number dw 0
-
-check_VBE_mode_best_area_high dw 0
-check_VBE_mode_best_area_low dw 0
-
-check_VBE_mode_best_screen_width dw 0
 
 check_VBE_mode:
     
@@ -1191,15 +1183,9 @@ check_VBE_mode_update:
     mov si, check_VBE_mode_msg1
     call _printstr
 check_VBE_mode_exit:
+    xor ax, ax
+    mov ds, ax
     ret
-
-
-
-
-
-
-
-
 
 
 
@@ -1220,7 +1206,7 @@ boot_pmode:
     mov si, kernel_loaded_msg
     call _printstr
 
-    mov cx, 0x3000
+    mov cx, 0x1000
     call _wait
 
     mov cx, 50
@@ -1249,6 +1235,9 @@ clear_loop:
 
     ;VBE graphics
     call VBEStuff
+
+    mov cx, 0x1000
+    call _wait
 
     cli
     lgdt [GDT_descriptor] ;load GDT
@@ -1279,8 +1268,6 @@ pmode:
 
 
 
-
-
 ; TOTAL of 512 bytes
 VBE_info_block_start:
     VBE_info_block_signature db 'NEIN'
@@ -1292,7 +1279,6 @@ VBE_info_block_start:
     VBE_info_block_total_memory dw 0 ;count of 64k blocks
     times 492 db 0 ;reserved
 VBE_info_block_end:
-
 ; TOTAL of 256 bytes
 VBE_mode_info_block_start:
     VBE_mode_info_block_attributes dw 0 ;deprecated, if bit 7 is 1 supports a linear frame buffer
@@ -1332,8 +1318,11 @@ VBE_mode_info_block_start:
     VBE_mode_info_block_framebuffer dd 0 ;physical address of the framebuffer, write here
     VBE_mode_info_block_off_screen_mem_offset dd 0 
     VBE_mode_info_block_off_screen_mem_size dw 0 ;in KB, size of memory in framebuffer but not being displayed on the screen
-    VBE_mode_info_block_reserved db 206 ;available in revision 3.0, useless
+    VBE_mode_info_block_reserved times 206 db 0 ;available in revision 3.0, useless
 VBE_mode_info_block_end:
+
+
+
 
 
 times 10240-($-$$) db 0 ;total length of binary 20 sector

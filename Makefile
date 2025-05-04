@@ -24,7 +24,12 @@ build:
 	$(CC) $(CFLAGS) -c src/kernel.c -o build/kernel.o 
 	$(CC) $(CFLAGS) -c src/loadIDT.c -o build/loadIDT.o
 
-	$(LD) $(LDFLAGS) build/kernel_entry.o build/kernel.o build/loadIDT.o -o build/full-kernel.bin 
+	#link entire kernel
+	$(LD) $(LDFLAGS) \
+	build/kernel_entry.o \
+	build/kernel.o \
+	build/loadIDT.o \
+	-o build/full-kernel.bin 
 
 	cat build/boot.bin build/full-kernel.bin > build/nuckos.bin
 
@@ -58,7 +63,6 @@ mkimg:
 	sudo sync
 
 mk:
-
 	#60 MiB + 2048 sectors
 	sudo dd if=/dev/zero of=build/nuckos.dd bs=512 count=124928
 	sudo chmod 644 build/nuckos.dd

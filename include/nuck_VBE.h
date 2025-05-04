@@ -24,6 +24,7 @@ struct __attribute__((packed)) VBE_mode_info_block{
 	uint16_t segmentB;
 	uint32_t winFuncPtr;    // deprecated; used to switch banks from protected mode without returning to real mode
 	uint16_t pitch;			// number of bytes per horizontal line
+	
 	uint16_t width;			// width in pixels
 	uint16_t height;			// height in pixels
 	uint8_t charWidth;			// unused...
@@ -34,7 +35,7 @@ struct __attribute__((packed)) VBE_mode_info_block{
 	uint8_t memoryModel;
 	uint8_t bankSize;   	// deprecated; size of a bank, almost always 64 KB but may be 16 KB...
 	uint8_t imagePages;
-	uint8_t reserved69;
+	uint8_t reserved0;
 
 	uint8_t redMask;
 	uint8_t redPos;
@@ -49,7 +50,7 @@ struct __attribute__((packed)) VBE_mode_info_block{
 	uint32_t framebuffer;		// physical address of the linear frame buffer; write here to draw to the screen
 	uint32_t offScreenMemOffset;
 	uint16_t offScreenMemSize;	// size of memory in the framebuffer but not being displayed on the screen
-	uint8_t reserved420[206];
+	uint8_t reserved[206];
 };
 
 #endif

@@ -31,7 +31,6 @@ typedef unsigned int Dword;
 
 
 
-
 #define JA 1
 #define NEIN 0
 

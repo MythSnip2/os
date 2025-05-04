@@ -4,1357 +4,1361 @@
      4                                  
      5                                  start_boot:
      6                                  
-     7                                  
-     8                                      ;set positive direction DF=0
-     9 00000000 FC                          cld
-    10                                  
-    11                                      ;disable interrupts
-    12 00000001 FA                          cli
-    13                                  
-    14                                      ;zero out the segment registers
-    15 00000002 31C0                        xor ax, ax
-    16 00000004 8ED8                        mov ds, ax
-    17 00000006 8EC0                        mov es, ax
-    18 00000008 8EE0                        mov fs, ax
-    19                                  
-    20                                      ;save the disk number
-    21 0000000A 8816[E200]                  mov [diskNum], dl
-    22                                  
-    23                                      ;initialize stack
-    24 0000000E 8ED0                        mov ss, ax
-    25 00000010 BCFF7B                      mov sp, 0x7BFF ;stack grows below bootloader
-    26                                  
-    27                                      ;set video mode to text mode(80x25)
-    28 00000013 B80300                      mov ax, 0x0003 ;ah = 0(function code), al = video mode flag
-    29 00000016 CD10                        int 0x10 ;bios call video services
-    30                                  
-    31                                  
-    32                                      ;enable interrupts
-    33 00000018 FB                          sti
-    34                                  
-    35 00000019 31C0                        xor ax, ax       ;print bootloader start msg
-    36 0000001B 8ED8                        mov ds, ax
-    37 0000001D BE[F700]                    mov si, startup_msg
-    38 00000020 E87600                      call _printstr
+     7                                      ;set positive direction DF=0
+     8 00000000 FC                          cld
+     9                                  
+    10                                      ;disable interrupts
+    11 00000001 FA                          cli
+    12                                  
+    13                                      ;zero out the segment registers
+    14 00000002 31C0                        xor ax, ax
+    15 00000004 8ED8                        mov ds, ax
+    16 00000006 8EC0                        mov es, ax
+    17 00000008 8EE0                        mov fs, ax
+    18                                  
+    19                                      ;save the disk number
+    20 0000000A 8816[E200]                  mov [diskNum], dl
+    21                                  
+    22                                      ;initialize stack
+    23 0000000E 8ED0                        mov ss, ax
+    24 00000010 BCFF7B                      mov sp, 0x7BFF ;stack grows below bootloader
+    25                                  
+    26                                      ;set video mode to text mode(80x25)
+    27 00000013 B80300                      mov ax, 0x0003 ;ah = 0(function code), al = video mode flag
+    28 00000016 CD10                        int 0x10 ;bios call video services
+    29                                  
+    30                                      ;enable interrupts
+    31 00000018 FB                          sti
+    32                                  
+    33 00000019 31C0                        xor ax, ax       ;print bootloader start msg
+    34 0000001B 8ED8                        mov ds, ax
+    35 0000001D BE[F700]                    mov si, startup_msg
+    36 00000020 E87600                      call _printstr
+    37                                  
+    38 00000023 E80300                      call _disk_read ;read bootloader code to ram
     39                                  
-    40 00000023 E80300                      call _disk_read ;read bootloader code to ram
+    40 00000026 E9D701                      jmp main
     41                                  
-    42 00000026 E9D703                      jmp main
-    43                                  
-    44                                  _disk_read:
-    45 00000029 31FF                        xor di, di ;counter for retry
-    46                                  _disk_read_loop:
-    47                                  
-    48 0000002B 31C0                        xor ax, ax
-    49 0000002D 8ED8                        mov ds, ax
-    50 0000002F BE[CF00]                    mov si, disk_read_msg ;Reading from disk: diskNum
-    51 00000032 E86400                      call _printstr
-    52                                  
-    53                                      ;Read (al) number of sectors from ch, dh, cl, drive dl, store in es:bx
-    54                                      ;Read 19(0x13) sectors starting from 0:0:2 in drive dl, store in 0x7E00
-    55 00000035 B81302                      mov ax, 0x0213 ;ah=scancode, Read sectors | al=number of sectors to read
-    56 00000038 B90200                      mov cx, 0x0002 ;ch=cylinder number CHS | cl=sector number CHS
-    57 0000003B 30F6                        xor dh, dh ;head number CHS
-    58 0000003D 8A16[E200]                  mov dl, [diskNum] ;drive number
-    59                                      ;Address to store values in: es:bx which is 0:7E00
-    60 00000041 31DB                        xor bx, bx
-    61 00000043 8EC3                        mov es, bx
-    62 00000045 BB007E                      mov bx, 0x7E00
-    63 00000048 CD13                        int 0x13 ;disk read
-    64 0000004A 720B                        jc __disk_read_fail
-    65                                  
-    66                                      ;disk read success
-    67 0000004C 31C0                        xor ax, ax
-    68 0000004E 8ED8                        mov ds, ax
-    69 00000050 BE[5E01]                    mov si, disk_read_success
-    70 00000053 E84300                      call _printstr
-    71 00000056 C3                          ret
-    72                                  
-    73                                  __disk_read_fail:
-    74                                      ;if number of attempts is over or equal 8
-    75 00000057 83FF08                      cmp di, 8
-    76 0000005A 7D2D                        jge __disk_read_fail_final
-    77                                  
-    78 0000005C 31C0                        xor ax, ax
-    79 0000005E 8ED8                        mov ds, ax
-    80 00000060 BE[0B01]                    mov si, disk_read_fail
-    81 00000063 E83300                      call _printstr
-    82                                  
-    83                                      ;attempt to reset disk
-    84 00000066 31C0                        xor ax, ax ;scancode ah = 0
-    85 00000068 8A16[E200]                  mov dl, [diskNum]
-    86 0000006C CD13                        int 0x13 ;reset disk system
-    87                                  
-    88 0000006E 47                          inc di
-    89                                      ;update number of attempts
-    90 0000006F 89F8                        mov ax, di
-    91 00000071 83C030                      add ax, '0'
-    92 00000074 A2[EE00]                    mov [attempt_num], al
-    93                                  
-    94 00000077 31C0                        xor ax, ax
-    95 00000079 8ED8                        mov ds, ax
-    96 0000007B BE[E600]                    mov si, attempts_msg
-    97 0000007E E81800                      call _printstr
-    98                                  
-    99 00000081 B90020                      mov cx, 0x2000
-   100 00000084 E83E00                      call _wait
+    42                                  _disk_read:
+    43 00000029 31FF                        xor di, di ;counter for retry
+    44                                  _disk_read_loop:
+    45                                  
+    46 0000002B 31C0                        xor ax, ax
+    47 0000002D 8ED8                        mov ds, ax
+    48 0000002F BE[CF00]                    mov si, disk_read_msg ;Reading from disk: diskNum
+    49 00000032 E86400                      call _printstr
+    50                                  
+    51                                      ;Read (al) number of sectors from ch, dh, cl, drive dl, store in es:bx
+    52                                      ;Read 19(0x13) sectors starting from 0:0:2 in drive dl, store in 0x7E00
+    53 00000035 B81302                      mov ax, 0x0213 ;ah=scancode, Read sectors | al=number of sectors to read
+    54 00000038 B90200                      mov cx, 0x0002 ;ch=cylinder number CHS | cl=sector number CHS
+    55 0000003B 30F6                        xor dh, dh ;head number CHS
+    56 0000003D 8A16[E200]                  mov dl, [diskNum] ;drive number
+    57                                      ;Address to store values in: es:bx which is 0:7E00
+    58 00000041 31DB                        xor bx, bx
+    59 00000043 8EC3                        mov es, bx
+    60 00000045 BB007E                      mov bx, 0x7E00
+    61 00000048 CD13                        int 0x13 ;disk read
+    62 0000004A 720B                        jc __disk_read_fail
+    63                                  
+    64                                      ;disk read success
+    65 0000004C 31C0                        xor ax, ax
+    66 0000004E 8ED8                        mov ds, ax
+    67 00000050 BE[5E01]                    mov si, disk_read_success
+    68 00000053 E84300                      call _printstr
+    69 00000056 C3                          ret
+    70                                  
+    71                                  __disk_read_fail:
+    72                                      ;if number of attempts is over or equal 8
+    73 00000057 83FF08                      cmp di, 8
+    74 0000005A 7D2D                        jge __disk_read_fail_final
+    75                                  
+    76 0000005C 31C0                        xor ax, ax
+    77 0000005E 8ED8                        mov ds, ax
+    78 00000060 BE[0B01]                    mov si, disk_read_fail
+    79 00000063 E83300                      call _printstr
+    80                                  
+    81                                      ;attempt to reset disk
+    82 00000066 31C0                        xor ax, ax ;scancode ah = 0
+    83 00000068 8A16[E200]                  mov dl, [diskNum]
+    84 0000006C CD13                        int 0x13 ;reset disk system
+    85                                  
+    86 0000006E 47                          inc di
+    87                                      ;update number of attempts
+    88 0000006F 89F8                        mov ax, di
+    89 00000071 83C030                      add ax, '0'
+    90 00000074 A2[EE00]                    mov [attempt_num], al
+    91                                  
+    92 00000077 31C0                        xor ax, ax
+    93 00000079 8ED8                        mov ds, ax
+    94 0000007B BE[E600]                    mov si, attempts_msg
+    95 0000007E E81800                      call _printstr
+    96                                  
+    97 00000081 B90020                      mov cx, 0x2000
+    98 00000084 E83E00                      call _wait
+    99                                  
+   100 00000087 EBA2                        jmp _disk_read_loop
    101                                  
-   102 00000087 EBA2                        jmp _disk_read_loop
-   103                                  
-   104                                  __disk_read_fail_final:
-   105 00000089 31C0                        xor ax, ax
-   106 0000008B 8ED8                        mov ds, ax
-   107 0000008D BE[2D01]                    mov si, disk_read_fail_final
-   108 00000090 E80600                      call _printstr
-   109                                      ;blocking keyboard input
-   110 00000093 31C0                        xor ax, ax
-   111 00000095 CD16                        int 0x16 ;keyboard services
-   112 00000097 EB11                        jmp biosboot_pc
-   113                                  
-   114                                  ; subroutine to print a string until null terminator
-   115                                  ; address of string: ds:si
-   116                                  _printstr:
-   117 00000099 FC                          cld ;clear DF flag in FLAGS
-   118                                  __printstr_loop:
-   119 0000009A 8A04                        mov al, [si]
-   120 0000009C 46                          inc si
-   121                                  
-   122 0000009D 08C0                        or al, al ;if al = 0
-   123 0000009F 7408                        jz __printstr_exit ;exit loop
-   124                                  
-   125 000000A1 B40E                        mov ah, 0x0E ;write character in TTY mode (bios call)
-   126 000000A3 31DB                        xor bx, bx ;bh = 0
-   127 000000A5 CD10                        int 0x10 ;bios call video services
-   128 000000A7 EBF1                        jmp __printstr_loop
-   129                                  __printstr_exit:
-   130 000000A9 C3                          ret
-   131                                  
-   132                                  biosboot_pc:
-   133 000000AA 31C0                        xor ax, ax
-   134 000000AC 8ED8                        mov ds, ax
-   135 000000AE BE[7201]                    mov si, biosboot_msg
-   136 000000B1 E8E5FF                      call _printstr
-   137 000000B4 CD19                        int 0x19
-   138                                  
-   139                                  restart_pc:
-   140 000000B6 31C0                        xor ax, ax
-   141 000000B8 8ED8                        mov ds, ax
-   142 000000BA BE[8F01]                    mov si, restart_msg
-   143 000000BD E8D9FF                      call _printstr
-   144                                      ;jump to reset vector
-   145 000000C0 EA0000FFFF                  jmp 0xFFFF:0x0000
-   146                                  
-   147                                  ; subroutine to delay cpu ticks
-   148                                  _wait:
-   149 000000C5 51                          push cx
-   150 000000C6 B9FFFF                      mov cx, 0xFFFF
-   151                                  __wait_innerloop:
-   152 000000C9 E2FE                        loop __wait_innerloop
-   153 000000CB 59                          pop cx
-   154 000000CC E2F7                        loop _wait
-   155 000000CE C3                          ret
-   156                                  
-   157 000000CF 52656164696E672066-         disk_read_msg db 'Reading from disk: '
-   157 000000D8 726F6D206469736B3A-
-   157 000000E1 20                 
-   158 000000E2 00                          diskNum db 0 ;reserved for BIOS drive number
-   159 000000E3 0D0A00                      db 0xD, 0xA, 0
-   160                                  
-   161 000000E6 417474656D707420            attempts_msg db 'Attempt '
-   162 000000EE 00                          attempt_num db 0
-   163 000000EF 206F6620380D0A00            db ' of 8', 0xD, 0xA, 0
-   164                                  
-   165 000000F7 4E75636B4F5320626F-         startup_msg db 'NuckOS bootloader', 0xD, 0xA, 0
-   165 00000100 6F746C6F616465720D-
-   165 00000109 0A00               
-   166 0000010B 4469736B2072656164-         disk_read_fail db 'Disk read failure, resetting...', 0xD, 0xA, 0
-   166 00000114 206661696C7572652C-
-   166 0000011D 20726573657474696E-
-   166 00000126 672E2E2E0D0A00     
-   167 0000012D 4469736B2072656164-         disk_read_fail_final db 'Disk read failed, press any key to continue...', 0xD, 0xA, 0
-   167 00000136 206661696C65642C20-
-   167 0000013F 707265737320616E79-
-   167 00000148 206B657920746F2063-
-   167 00000151 6F6E74696E75652E2E-
-   167 0000015A 2E0D0A00           
-   168 0000015E 4469736B2072656164-         disk_read_success db 'Disk read success', 0xD, 0xA, 0
-   168 00000167 20737563636573730D-
-   168 00000170 0A00               
-   169                                  
-   170 00000172 426F6F74696E672069-         biosboot_msg db 'Booting into BIOS setup...', 0xD, 0xA, 0
-   170 0000017B 6E746F2042494F5320-
-   170 00000184 73657475702E2E2E0D-
-   170 0000018D 0A00               
-   171 0000018F 52657374617274696E-         restart_msg db 'Restarting...', 0xD, 0xA, 0
-   171 00000198 672E2E2E0D0A00     
-   172 0000019F 00<rep 1Fh>                 times 446-($-$$) db 0 ;446B bootloader code
-   173                                      ;MBR partition table(64B)
+   102                                  __disk_read_fail_final:
+   103 00000089 31C0                        xor ax, ax
+   104 0000008B 8ED8                        mov ds, ax
+   105 0000008D BE[2D01]                    mov si, disk_read_fail_final
+   106 00000090 E80600                      call _printstr
+   107                                      ;blocking keyboard input
+   108 00000093 31C0                        xor ax, ax
+   109 00000095 CD16                        int 0x16 ;keyboard services
+   110 00000097 EB11                        jmp biosboot_pc
+   111                                  
+   112                                  ; subroutine to print a string until null terminator
+   113                                  ; address of string: ds:si
+   114                                  _printstr:
+   115 00000099 FC                          cld ;clear DF flag in FLAGS
+   116                                  __printstr_loop:
+   117 0000009A 8A04                        mov al, [si]
+   118 0000009C 46                          inc si
+   119                                  
+   120 0000009D 08C0                        or al, al ;if al = 0
+   121 0000009F 7408                        jz __printstr_exit ;exit loop
+   122                                  
+   123 000000A1 B40E                        mov ah, 0x0E ;write character in TTY mode (bios call)
+   124 000000A3 31DB                        xor bx, bx ;bh = 0
+   125 000000A5 CD10                        int 0x10 ;bios call video services
+   126 000000A7 EBF1                        jmp __printstr_loop
+   127                                  __printstr_exit:
+   128 000000A9 C3                          ret
+   129                                  
+   130                                  biosboot_pc:
+   131 000000AA 31C0                        xor ax, ax
+   132 000000AC 8ED8                        mov ds, ax
+   133 000000AE BE[7201]                    mov si, biosboot_msg
+   134 000000B1 E8E5FF                      call _printstr
+   135 000000B4 CD19                        int 0x19
+   136                                  
+   137                                  restart_pc:
+   138 000000B6 31C0                        xor ax, ax
+   139 000000B8 8ED8                        mov ds, ax
+   140 000000BA BE[8F01]                    mov si, restart_msg
+   141 000000BD E8D9FF                      call _printstr
+   142                                      ;jump to reset vector
+   143 000000C0 EA0000FFFF                  jmp 0xFFFF:0x0000
+   144                                  
+   145                                  ; subroutine to delay cpu ticks
+   146                                  _wait:
+   147 000000C5 51                          push cx
+   148 000000C6 B9FFFF                      mov cx, 0xFFFF
+   149                                  __wait_innerloop:
+   150 000000C9 E2FE                        loop __wait_innerloop
+   151 000000CB 59                          pop cx
+   152 000000CC E2F7                        loop _wait
+   153 000000CE C3                          ret
+   154                                  
+   155 000000CF 52656164696E672066-         disk_read_msg db 'Reading from disk: '
+   155 000000D8 726F6D206469736B3A-
+   155 000000E1 20                 
+   156 000000E2 00                          diskNum db 0 ;reserved for BIOS drive number
+   157 000000E3 0D0A00                      db 0xD, 0xA, 0
+   158                                  
+   159 000000E6 417474656D707420            attempts_msg db 'Attempt '
+   160 000000EE 00                          attempt_num db 0
+   161 000000EF 206F6620380D0A00            db ' of 8', 0xD, 0xA, 0
+   162                                  
+   163 000000F7 4E75636B4F5320626F-         startup_msg db 'NuckOS bootloader', 0xD, 0xA, 0
+   163 00000100 6F746C6F616465720D-
+   163 00000109 0A00               
+   164 0000010B 4469736B2072656164-         disk_read_fail db 'Disk read failure, resetting...', 0xD, 0xA, 0
+   164 00000114 206661696C7572652C-
+   164 0000011D 20726573657474696E-
+   164 00000126 672E2E2E0D0A00     
+   165 0000012D 4469736B2072656164-         disk_read_fail_final db 'Disk read failed, press any key to continue...', 0xD, 0xA, 0
+   165 00000136 206661696C65642C20-
+   165 0000013F 707265737320616E79-
+   165 00000148 206B657920746F2063-
+   165 00000151 6F6E74696E75652E2E-
+   165 0000015A 2E0D0A00           
+   166 0000015E 4469736B2072656164-         disk_read_success db 'Disk read success', 0xD, 0xA, 0
+   166 00000167 20737563636573730D-
+   166 00000170 0A00               
+   167                                  
+   168 00000172 426F6F74696E672069-         biosboot_msg db 'Booting into BIOS setup...', 0xD, 0xA, 0
+   168 0000017B 6E746F2042494F5320-
+   168 00000184 73657475702E2E2E0D-
+   168 0000018D 0A00               
+   169 0000018F 52657374617274696E-         restart_msg db 'Restarting...', 0xD, 0xA, 0
+   169 00000198 672E2E2E0D0A00     
+   170 0000019F 00<rep 1Fh>                 times 446-($-$$) db 0 ;446B bootloader code
+   171                                      ;MBR partition table(64B)
+   172                                      ;
+   173                                      ;bootable, start 2048 end 124927 size 60MiB
    174                                      ;
-   175                                      ;bootable, start 2048 end 124927 size 60MiB
-   176                                      ;
-   177                                      ;first entry
-   178 000001BE 80                          db 0b10000000 ;bit 7: bootable flag
-   179                                      ;chs addressing of first sector
-   180 000001BF 20                          db 0b00100000 ;head (bits 0-7)
-   181 000001C0 21                          db 0b00100001 ;sector(bits 0-5, bits 6-7 are high bits for cylinder(8-9))
-   182 000001C1 00                          db 0b00000000 ;cylinder(bits 0-7)
-   183 000001C2 0C                          db 0x0C ;partition type (W95 FAT32 (LBA))
-   184                                      ;chs addressing of last sector
-   185 000001C3 C5                          db 0b11000101 ;head (bits 0-7)
-   186 000001C4 3E                          db 0b00111110 ;sector(bits 0-5, bits 6-7 are high bits for cylinder(8-9))
-   187 000001C5 07                          db 0b00000111 ;cylinder(bits 0-7)
-   188 000001C6 00080000                    dd 0x00000800 ;LBA for first sector
-   189 000001CA 00E00100                    dd 0x0001E000 ;Number of sectors in partition
-   190                                      ;other entries
-   191 000001CE 00<rep 30h>                 times 3*16 db 0
-   192                                  
-   193                                  times 510-($-$$) db 0 ;510B excluding boot signature
-   194 000001FE 55AA                    db 0x55, 0xAA
-   195                                  ; end of first sector, 512B -----------------------------------------------------------------------------------------------
-   196                                  ; buffer sector(s)
-   197 00000200 00<rep 200h>            times 512 db 0
-   198                                  
-   199                                  
-   200                                  
-   201                                  main:
-   202 00000400 31C0                        xor ax, ax
-   203 00000402 8ED8                        mov ds, ax
-   204 00000404 BE[C807]                    mov si, oslogo
-   205 00000407 E88FFC                      call _printstr
-   206                                  
-   207                                      ;print a helpful message
-   208 0000040A BE[5106]                    mov si, msg
-   209 0000040D E889FC                      call _printstr
-   210                                  
-   211                                  hang:
-   212 00000410 B401                        mov ah, 0x01;ah = 1, get keyboard status(check if a key is pressed)
-   213 00000412 CD16                        int 0x16 ;keyboard services
-   214                                      ;return: AL = character, AH = scan code
-   215 00000414 74FA                        jz hang ;if key not pressed jump back
-   216                                      ;if there is a key use int 0x16,0 to get the results
-   217 00000416 31C0                        xor ax, ax
-   218 00000418 CD16                        int 0x16 ;ah = scancode, al = char
-   219                                  
-   220                                      ;print char
-   221 0000041A 50                          push ax
-   222 0000041B B40E                        mov ah, 0x0E
-   223 0000041D CD10                        int 0x10
-   224 0000041F 58                          pop ax
-   225                                  
-   226 00000420 80FC3B                      cmp ah, 0x3B
-   227 00000423 0F8483FC                    je biosboot_pc
-   228 00000427 80FC3C                      cmp ah, 0x3C
-   229 0000042A 0F8488FC                    je restart_pc
-   230 0000042E 80FC3D                      cmp ah, 0x3D
-   231 00000431 0F84F400                    je cls
-   232 00000435 80FC3E                      cmp ah, 0x3E
-   233 00000438 0F841201                    je halt
-   234 0000043C 80FC3F                      cmp ah, 0x3F
-   235 0000043F 0F84F800                    je biosbeep
-   236 00000443 80FC40                      cmp ah, 0x40
-   237 00000446 0F84200B                    je boot_pmode
-   238 0000044A 80FC41                      cmp ah, 0x41
-   239 0000044D 7407                        je retest
-   240                                  
-   241 0000044F 50                          push ax
-   242 00000450 E84800                      call hang_virtual_piano
-   243 00000453 58                          pop ax
-   244                                  
-   245 00000454 EBBA                        jmp hang
-   246                                  
-   247                                  ;subroutine to retest nuck os
-   248                                  retest:
-   249 00000456 8A16[E200]                  mov dl, [diskNum]
-   250 0000045A 52                          push dx
-   251 0000045B E80600                      call retest_disk_read
-   252                                      ;jump to the start
-   253 0000045E 5A                          pop dx
-   254 0000045F EA0000C007                  jmp 0x07C0:0x0000
+   175                                      ;first entry
+   176 000001BE 80                          db 0b10000000 ;bit 7: bootable flag
+   177                                      ;chs addressing of first sector
+   178 000001BF 20                          db 0b00100000 ;head (bits 0-7)
+   179 000001C0 21                          db 0b00100001 ;sector(bits 0-5, bits 6-7 are high bits for cylinder(8-9))
+   180 000001C1 00                          db 0b00000000 ;cylinder(bits 0-7)
+   181 000001C2 0C                          db 0x0C ;partition type (W95 FAT32 (LBA))
+   182                                      ;chs addressing of last sector
+   183 000001C3 C5                          db 0b11000101 ;head (bits 0-7)
+   184 000001C4 3E                          db 0b00111110 ;sector(bits 0-5, bits 6-7 are high bits for cylinder(8-9))
+   185 000001C5 07                          db 0b00000111 ;cylinder(bits 0-7)
+   186 000001C6 00080000                    dd 0x00000800 ;LBA for first sector
+   187 000001CA 00E00100                    dd 0x0001E000 ;Number of sectors in partition
+   188                                      ;other entries
+   189 000001CE 00<rep 30h>                 times 3*16 db 0
+   190                                  
+   191                                  times 510-($-$$) db 0 ;510B excluding boot signature
+   192 000001FE 55AA                    db 0x55, 0xAA
+   193                                  ; end of first sector, 512B -----------------------------------------------------------------------------------------------
+   194                                  
+   195                                  
+   196                                  main:
+   197 00000200 31C0                        xor ax, ax
+   198 00000202 8ED8                        mov ds, ax
+   199 00000204 BE[C805]                    mov si, oslogo
+   200 00000207 E88FFE                      call _printstr
+   201                                  
+   202                                      ;print a helpful message
+   203 0000020A BE[5104]                    mov si, msg
+   204 0000020D E889FE                      call _printstr
+   205                                  
+   206                                  hang:
+   207 00000210 B401                        mov ah, 0x01;ah = 1, get keyboard status(check if a key is pressed)
+   208 00000212 CD16                        int 0x16 ;keyboard services
+   209                                      ;return: AL = character, AH = scan code
+   210 00000214 74FA                        jz hang ;if key not pressed jump back
+   211                                      ;if there is a key use int 0x16,0 to get the results
+   212 00000216 31C0                        xor ax, ax
+   213 00000218 CD16                        int 0x16 ;ah = scancode, al = char
+   214                                  
+   215                                      ;print char
+   216 0000021A 50                          push ax
+   217 0000021B B40E                        mov ah, 0x0E
+   218 0000021D CD10                        int 0x10
+   219 0000021F 58                          pop ax
+   220                                  
+   221 00000220 80FC3B                      cmp ah, 0x3B
+   222 00000223 0F8483FE                    je biosboot_pc
+   223 00000227 80FC3C                      cmp ah, 0x3C
+   224 0000022A 0F8488FE                    je restart_pc
+   225 0000022E 80FC3D                      cmp ah, 0x3D
+   226 00000231 0F84F400                    je cls
+   227 00000235 80FC3E                      cmp ah, 0x3E
+   228 00000238 0F841201                    je halt
+   229 0000023C 80FC3F                      cmp ah, 0x3F
+   230 0000023F 0F84F800                    je biosbeep
+   231 00000243 80FC40                      cmp ah, 0x40
+   232 00000246 0F84750B                    je boot_pmode
+   233 0000024A 80FC41                      cmp ah, 0x41
+   234 0000024D 7407                        je retest
+   235                                  
+   236 0000024F 50                          push ax
+   237 00000250 E84800                      call hang_virtual_piano
+   238 00000253 58                          pop ax
+   239                                  
+   240 00000254 EBBA                        jmp hang
+   241                                  
+   242                                  ;subroutine to retest nuck os
+   243                                  retest:
+   244 00000256 8A16[E200]                  mov dl, [diskNum]
+   245 0000025A 52                          push dx
+   246 0000025B E80600                      call retest_disk_read
+   247                                      ;jump to the start
+   248 0000025E 5A                          pop dx
+   249 0000025F EA0000C007                  jmp 0x07C0:0x0000
+   250                                  
+   251                                  
+   252                                  retest_disk_read:
+   253 00000264 31FF                        xor di, di ;counter for retry
+   254                                  retest_disk_read_loop:
    255                                  
-   256                                  
-   257                                  retest_disk_read:
-   258 00000464 31FF                        xor di, di ;counter for retry
-   259                                  retest_disk_read_loop:
-   260                                  
-   261                                      ;Read (al) number of sectors from ch, dh, cl, drive dl, store in es:bx
-   262                                      ;Read 19(0x13) sectors starting from 0:0:2 in drive dl, store in 0x7E00
-   263 00000466 B80102                      mov ax, 0x0201 ;ah=scancode, Read sectors | al=number of sectors to read
-   264 00000469 B90100                      mov cx, 0x0001 ;ch=cylinder number CHS | cl=sector number CHS
-   265 0000046C 30F6                        xor dh, dh ;head number CHS
-   266 0000046E 8A16[E200]                  mov dl, [diskNum] ;drive number
-   267                                      ;Address to store values in: es:bx which is 0:7E00
-   268 00000472 31DB                        xor bx, bx
-   269 00000474 8EC3                        mov es, bx
-   270 00000476 BB007C                      mov bx, 0x7C00
-   271 00000479 CD13                        int 0x13 ;disk read
-   272 0000047B 7201                        jc retest__disk_read_fail
-   273                                  
-   274                                      ;disk read success
-   275 0000047D C3                          ret
+   256                                      ;Read (al) number of sectors from ch, dh, cl, drive dl, store in es:bx
+   257                                      ;Read 19(0x13) sectors starting from 0:0:2 in drive dl, store in 0x7E00
+   258 00000266 B80102                      mov ax, 0x0201 ;ah=scancode, Read sectors | al=number of sectors to read
+   259 00000269 B90100                      mov cx, 0x0001 ;ch=cylinder number CHS | cl=sector number CHS
+   260 0000026C 30F6                        xor dh, dh ;head number CHS
+   261 0000026E 8A16[E200]                  mov dl, [diskNum] ;drive number
+   262                                      ;Address to store values in: es:bx which is 0:7E00
+   263 00000272 31DB                        xor bx, bx
+   264 00000274 8EC3                        mov es, bx
+   265 00000276 BB007C                      mov bx, 0x7C00
+   266 00000279 CD13                        int 0x13 ;disk read
+   267 0000027B 7201                        jc retest__disk_read_fail
+   268                                  
+   269                                      ;disk read success
+   270 0000027D C3                          ret
+   271                                  
+   272                                  retest__disk_read_fail:
+   273                                      ;if number of attempts is over or equal 8
+   274 0000027E 83FF08                      cmp di, 8
+   275 00000281 7D11                        jge retest__disk_read_fail_final
    276                                  
-   277                                  retest__disk_read_fail:
-   278                                      ;if number of attempts is over or equal 8
-   279 0000047E 83FF08                      cmp di, 8
-   280 00000481 7D11                        jge retest__disk_read_fail_final
+   277                                      ;attempt to reset disk
+   278 00000283 31C0                        xor ax, ax ;scancode ah = 0
+   279 00000285 8A16[E200]                  mov dl, [diskNum]
+   280 00000289 CD13                        int 0x13 ;reset disk system
    281                                  
-   282                                      ;attempt to reset disk
-   283 00000483 31C0                        xor ax, ax ;scancode ah = 0
-   284 00000485 8A16[E200]                  mov dl, [diskNum]
-   285 00000489 CD13                        int 0x13 ;reset disk system
+   282 0000028B 47                          inc di
+   283                                  
+   284 0000028C B90020                      mov cx, 0x2000
+   285 0000028F E833FE                      call _wait
    286                                  
-   287 0000048B 47                          inc di
+   287 00000292 EBD2                        jmp retest_disk_read_loop
    288                                  
-   289 0000048C B90020                      mov cx, 0x2000
-   290 0000048F E833FC                      call _wait
-   291                                  
-   292 00000492 EBD2                        jmp retest_disk_read_loop
-   293                                  
-   294                                  retest__disk_read_fail_final:
-   295                                      ;blocking keyboard input
-   296 00000494 31C0                        xor ax, ax
-   297 00000496 CD16                        int 0x16 ;keyboard services
-   298 00000498 E90FFC                      jmp biosboot_pc
-   299                                  
-   300                                  
-   301                                  
-   302                                  ;subroutine to play a note in virtual piano
-   303                                  ;key: al
-   304                                  hang_virtual_piano:
-   305                                      ;change mode
-   306 0000049B 50                          push ax
-   307                                  
-   308 0000049C 3C3B                        cmp al, 0x3B
-   309 0000049E 740A                        je hang_virtual_piano_mode_rst
-   310 000004A0 3C27                        cmp al, 0x27
-   311 000004A2 7415                        je hang_virtual_piano_mode_1
-   312 000004A4 3C22                        cmp al, 0x22
-   313 000004A6 7423                        je hang_virtual_piano_mode_2
-   314 000004A8 EB31                        jmp hang_virtual_piano_mode_done
-   315                                  hang_virtual_piano_mode_rst:
-   316 000004AA 31C0                        xor ax, ax
-   317 000004AC A2[8B09]                    mov [hang_virtual_piano_mode], al
-   318 000004AF 8ED8                        mov ds, ax
-   319 000004B1 BE[8C09]                    mov si, mode_rst_msg
-   320 000004B4 E8E2FB                      call _printstr
-   321 000004B7 EB22                        jmp hang_virtual_piano_mode_done
-   322                                  hang_virtual_piano_mode_1:
-   323 000004B9 B80100                      mov ax, 0x0001
-   324 000004BC A2[8B09]                    mov [hang_virtual_piano_mode], al
-   325 000004BF 31C0                        xor ax, ax
-   326 000004C1 8ED8                        mov ds, ax
-   327 000004C3 BE[9B09]                    mov si, mode_1_msg
-   328 000004C6 E8D0FB                      call _printstr    
-   329 000004C9 EB10                        jmp hang_virtual_piano_mode_done
-   330                                  hang_virtual_piano_mode_2:
-   331 000004CB B80200                      mov ax, 0x0002
-   332 000004CE A2[8B09]                    mov [hang_virtual_piano_mode], al
-   333 000004D1 31C0                        xor ax, ax
-   334 000004D3 8ED8                        mov ds, ax
-   335 000004D5 BE[A809]                    mov si, mode_2_msg
-   336 000004D8 E8BEFB                      call _printstr
-   337                                  hang_virtual_piano_mode_done:
-   338                                      ;load difference in di
-   339 000004DB 31C0                        xor ax, ax
-   340 000004DD A0[8B09]                    mov al, [hang_virtual_piano_mode]
-   341 000004E0 BB7A00                      mov bx, 122 ;byte difference between the modes defined contiguously in memory
-   342 000004E3 31D2                        xor dx, dx
-   343 000004E5 F7E3                        mul bx
-   344 000004E7 89C7                        mov di, ax
-   345 000004E9 58                          pop ax
-   346                                  
-   347 000004EA 31C9                        xor cx, cx             ;i = 0
-   348 000004EC 8B16[B609]                  mov dx, [keylen]       ;k = 10
-   349                                  hang_virtual_piano_loop:
-   350 000004F0 39D1                        cmp cx, dx
-   351 000004F2 0F8D1AFF                    jge hang               ;return if i >= k
-   352 000004F6 89CE                        mov si, cx             ;si = i
-   353 000004F8 8A9C[B809]                  mov bl, [keys + si]    ;bl = keys[i]
-   354 000004FC 38D8                        cmp al, bl             ;if pressed_key == keys[i]
-   355 000004FE 7403                        je hang_virtual_piano_play
-   356                                  
-   357 00000500 41                          inc cx                 ;i++
-   358 00000501 EBED                        jmp hang_virtual_piano_loop
-   359                                  
-   360                                  hang_virtual_piano_play:
-   361 00000503 89C8                        mov ax, cx
-   362 00000505 B90200                      mov cx, 2
-   363 00000508 F7E1                        mul cx
-   364 0000050A 89C6                        mov si, ax
-   365 0000050C B8[F509]                    mov ax, notes
-   366 0000050F 01F8                        add ax, di
-   367 00000511 01F0                        add ax, si
-   368 00000513 89C3                        mov bx, ax
-   369 00000515 8B07                        mov ax, [bx]
-   370                                      
-   371 00000517 E87900                      call _tone
-   372 0000051A B9FFFF                      mov cx, 0xFFFF
-   373 0000051D BA0500                      mov dx, 0x5
-   374 00000520 E84300                      call _wait_PIT
-   375 00000523 E89B00                      call speaker_off
-   376 00000526 E9E7FE                      jmp hang
-   377                                  
-   378                                  cls:
-   379 00000529 B93200                      mov cx, 50
-   380                                  cls_loop:
-   381 0000052C B80D0E                      mov ax, 0x0E0D
-   382 0000052F CD10                        int 0x10
-   383 00000531 B80A0E                      mov ax, 0x0E0A
-   384 00000534 CD10                        int 0x10
-   385 00000536 E2F4                        loop cls_loop
-   386 00000538 E9D5FE                      jmp hang
-   387                                  
-   388                                  ;bios beep tone
-   389                                  biosbeep:
-   390 0000053B 31C0                        xor ax, ax
-   391 0000053D 8ED8                        mov ds, ax
-   392 0000053F BE[C107]                    mov si, beep_msg
-   393 00000542 E854FB                      call _printstr
-   394 00000545 B90001                      mov cx, 0x100
-   395 00000548 E87AFB                      call _wait
-   396 0000054B E9C2FE                      jmp hang
-   397                                  
-   398                                  halt:
-   399 0000054E B93200                      mov cx, 50
-   400                                  halt_cls_loop:
-   401 00000551 B80D0E                      mov ax, 0x0E0D
-   402 00000554 CD10                        int 0x10
-   403 00000556 B80A0E                      mov ax, 0x0E0A
-   404 00000559 CD10                        int 0x10
-   405 0000055B E2F4                        loop halt_cls_loop
-   406                                      ;disable cursor
-   407 0000055D B401                        mov ah, 0x01
-   408 0000055F B90020                      mov cx, 0x2000 ;disable cursor
-   409 00000562 CD10                        int 0x10    ;int 0x10, 1: set cursor type
-   410                                  
-   411 00000564 FA                          cli
-   412 00000565 F4                          hlt
-   413                                  
-   414                                  ;dx*cx is amount of ticks to wait
-   415                                  _wait_PIT:
-   416 00000566 51                          push cx
-   417 00000567 E80500                      call _wait_PIT_once
-   418 0000056A 59                          pop cx
-   419 0000056B 4A                          dec dx
-   420 0000056C 75F8                        jnz _wait_PIT
-   421 0000056E C3                          ret
-   422                                  
-   423                                  ;cx, starting
-   424                                  ;cx is amount of ticks to wait
-   425                                  _wait_PIT_once:
-   426 0000056F 51                          push cx
-   427 00000570 E81100                      call _read_PIT_ticks
-   428 00000573 53                          push bx ;bx = starting count
-   429                                  _wait_PIT_once_loop:
-   430 00000574 E80D00                      call _read_PIT_ticks ;read the count again, store in bx
-   431                                      ;compute time difference = current count - start count
-   432 00000577 58                          pop ax      ;current count is bx, starting count is ax
-   433 00000578 29C3                        sub bx, ax  ;bx = time diff
-   434 0000057A 59                          pop cx
-   435 0000057B 51                          push cx
-   436 0000057C 50                          push ax
-   437 0000057D 39CB                        cmp bx, cx  ;if time diff < wait ticks, loop again
-   438 0000057F 7CF3                        jl _wait_PIT_once_loop
-   439 00000581 58                          pop ax
-   440 00000582 58                          pop ax
-   441 00000583 C3                          ret
-   442                                  
-   443                                  ;returns PIT ticks stored in bx
-   444                                  _read_PIT_ticks:
-   445 00000584 FA                          cli
-   446 00000585 31C0                        xor ax, ax
-   447 00000587 E643                        out 0x43, al
-   448 00000589 E440                        in al, 0x40 ;LSB
-   449 0000058B 88C3                        mov bl, al
-   450 0000058D E440                        in al, 0x40 ;MSB
-   451 0000058F 88C7                        mov bh, al
-   452 00000591 FB                          sti
-   453 00000592 C3                          ret
-   454                                  
-   455                                  ;PIT notes
-   456                                  ;I/O port     Usage
-   457                                  ;0x40         Channel 0 data port (read/write)
-   458                                  ;0x41         Channel 1 data port (read/write)
-   459                                  ;0x42         Channel 2 data port (read/write)
-   460                                  ;0x43         Mode/Command register (write only, a read is ignored)
-   461                                  ;
-   462                                  ;Bits:  7 6 5 4 3 2 1 0
-   463                                  ;       | | | | | | | +-- BCD (0 = binary, 1 = BCD)
-   464                                  ;       | | | | +--+-- Mode (0–5)
-   465                                  ;       | | +-----+-- Access Mode: 
-   466                                  ;       | |          01 = LSB, 10 = MSB, 11 = LSB+MSB
-   467                                  ;       +---- Channel (00 = ch0, 01 = ch1, 10 = ch2)
-   468                                  ;subroutine to play a tone
-   469                                  ;ax: frequency
-   470                                  _tone:
-   471 00000593 50                          push ax
-   472                                      ;calculate divisor from frequency
-   473                                      ;divisor = 1193182 / freq
-   474                                      ;load numerator into dx:ax (1193182)(0x1234DE)
-   475 00000594 BA1200                      mov dx, 0x12
-   476 00000597 B8DE34                      mov ax, 0x34DE
-   477                                      ;load denominator into bx(frequency)
-   478 0000059A 5B                          pop bx
-   479                                      ;divide
-   480 0000059B F7F3                        div bx ;dx:ax / bx, quotient ax, remainder dx
-   481 0000059D 50                          push ax ;save on stack
-   482                                  
-   483 0000059E E82000                      call speaker_off
-   484                                      ;write to PIT control register
-   485 000005A1 B0B6                        mov al, 0b10110110
-   486 000005A3 E643                        out 0x43, al ;channel 2, LSB+MSB, mode 3, binary
-   487                                      ;write divisor to channel 2 data port
-   488 000005A5 58                          pop ax         ; Divisor
-   489 000005A6 89C3                        mov bx, ax
-   490 000005A8 88D8                        mov al, bl
-   491 000005AA E642                        out 0x42, al         ; LSB first
-   492 000005AC 88F8                        mov al, bh
-   493 000005AE E642                        out 0x42, al         ; Then MSB
-   494                                      
-   495 000005B0 E80500                      call speaker_on
-   496 000005B3 31C0                        xor ax, ax
-   497 000005B5 8ED8                        mov ds, ax
-   498 000005B7 C3                          ret
-   499                                  
-   500                                  ;tell speaker to not shut up
-   501                                  speaker_on:
-   502 000005B8 FA                          cli
-   503 000005B9 E461                        in al, 0x61
-   504 000005BB 0C03                        or al, 0b11
-   505 000005BD E661                        out 0x61, al ;bit 0 enable speaker, bit 1 enable timer 2 gate(PIT square wave)
-   506 000005BF FB                          sti
-   507 000005C0 C3                          ret
-   508                                  ;tell speaker to shut up
-   509                                  speaker_off:
-   510 000005C1 FA                          cli
-   511 000005C2 E461                        in al, 0x61
-   512 000005C4 24FC                        and al, 0b11111100
-   513 000005C6 E661                        out 0x61, al
-   514 000005C8 FB                          sti
-   515 000005C9 C3                          ret
-   516                                  
-   517                                  
-   518                                  
-   519                                  print_ax:
-   520 000005CA 60                          pusha
-   521                                  
-   522 000005CB 50                          push ax
-   523 000005CC B40E                        mov ah, 0xE
-   524 000005CE B030                        mov al, '0'
-   525 000005D0 CD10                        int 0x10
-   526 000005D2 B40E                        mov ah, 0xE
-   527 000005D4 B062                        mov al, 'b'
-   528 000005D6 CD10                        int 0x10
-   529 000005D8 58                          pop ax
-   530                                  
-   531 000005D9 89C3                        mov bx, ax
-   532 000005DB B91000                      mov cx, 16
-   533                                  print_ax_loop:
-   534 000005DE 89D8                        mov ax, bx
-   535 000005E0 83E001                      and ax, 1
-   536 000005E3 83C030                      add ax, '0'
-   537 000005E6 B40E                        mov ah, 0xE
-   538 000005E8 50                          push ax
-   539 000005E9 D1EB                        shr bx, 1
-   540 000005EB E2F1                        loop print_ax_loop
-   541 000005ED B91000                      mov cx, 16
-   542                                  print_ax_loop2:
-   543 000005F0 58                          pop ax
-   544 000005F1 CD10                        int 0x10
-   545 000005F3 E2FB                        loop print_ax_loop2
-   546 000005F5 61                          popa
-   547 000005F6 C3                          ret
-   548                                  
-   549                                  print_al:
-   550 000005F7 60                          pusha
-   551                                  
-   552 000005F8 50                          push ax
-   553 000005F9 B40E                        mov ah, 0xE
-   554 000005FB B030                        mov al, '0'
-   555 000005FD CD10                        int 0x10
-   556 000005FF B40E                        mov ah, 0xE
-   557 00000601 B062                        mov al, 'b'
-   558 00000603 CD10                        int 0x10
-   559 00000605 58                          pop ax
-   560                                  
-   561 00000606 30FF                        xor bh, bh
-   562 00000608 88C3                        mov bl, al
-   563 0000060A B90800                      mov cx, 8
-   564                                  print_al_loop:
-   565 0000060D 88D8                        mov al, bl
-   566 0000060F 2401                        and al, 1
-   567 00000611 0430                        add al, '0'
-   568 00000613 B40E                        mov ah, 0xE
-   569 00000615 50                          push ax
-   570 00000616 D0EB                        shr bl, 1
-   571 00000618 E2F3                        loop print_al_loop
-   572 0000061A B90800                      mov cx, 8
-   573                                  print_al_loop2:
-   574 0000061D 58                          pop ax
-   575 0000061E CD10                        int 0x10
-   576 00000620 E2FB                        loop print_al_loop2
-   577 00000622 61                          popa
-   578 00000623 C3                          ret
-   579                                  
-   580                                  
-   581                                  ;print value of ax in decimal
-   582                                  print_ax_decimal:
-   583 00000624 60                          pusha
-   584                                      ;push 0 for print function to end
-   585 00000625 31DB                        xor bx, bx
-   586 00000627 53                          push bx
-   587                                      ;if ax is already zero, just print a 0
-   588 00000628 09C0                        or ax, ax
-   589 0000062A 741C                        jz print_ax_decimal_zero
-   590                                  print_ax_decimal_loop:
-   591 0000062C 09C0                        or ax, ax
-   592 0000062E 740D                        jz print_ax_decimal_printloop
-   593 00000630 31D2                        xor dx, dx
-   594 00000632 BB0A00                      mov bx, 10
-   595                                      ;16 bit division, dx:ax / bx = ax, remainder dx
-   596 00000635 F7F3                        div bx
-   597                                      ;push remainder in ascii
-   598 00000637 83C230                      add dx, '0'
-   599 0000063A 52                          push dx
-   600                                      ;loop
-   601 0000063B EBEF                        jmp print_ax_decimal_loop
-   602                                  print_ax_decimal_printloop:
-   603                                      ;print digits pushed on the stack
-   604 0000063D 58                          pop ax
-   605                                      ;if popped value is 0, exit
-   606 0000063E 09C0                        or ax, ax
-   607 00000640 740D                        jz print_ax_decimal_end
-   608                                      ;print value
-   609 00000642 B40E                        mov ah, 0xE
-   610 00000644 CD10                        int 0x10
-   611 00000646 EBF5                        jmp print_ax_decimal_printloop
-   612                                  print_ax_decimal_zero:
-   613 00000648 5B                          pop bx
-   614 00000649 B40E                        mov ah, 0xE
-   615 0000064B B030                        mov al, '0'
-   616 0000064D CD10                        int 0x10
-   617                                  print_ax_decimal_end:
-   618 0000064F 61                          popa
-   619 00000650 C3                          ret
-   620                                  
-   621                                  
-   622                                  
-   623                                  
-   624                                  
-   625                                  
-   626 00000651 0D0A                        msg db 0xD, 0xA
-   627 00000653 46313A2062696F7320-         db 'F1: bios setup/restart/boot next', 0xD, 0xA
-   627 0000065C 73657475702F726573-
-   627 00000665 746172742F626F6F74-
-   627 0000066E 206E6578740D0A     
-   628 00000675 46323A207265737461-         db 'F2: restart (far jump to reset vector)', 0xD, 0xA
-   628 0000067E 72742028666172206A-
-   628 00000687 756D7020746F207265-
-   628 00000690 73657420766563746F-
-   628 00000699 72290D0A           
-   629 0000069D 46333A20636C656172-         db 'F3: clear screen', 0xD, 0xA
-   629 000006A6 2073637265656E0D0A 
-   630 000006AF 46343A2068616C740D-         db 'F4: halt', 0xD, 0xA
-   630 000006B8 0A                 
-   631 000006B9 46353A2042494F5320-         db 'F5: BIOS beep', 0xD, 0xA
-   631 000006C2 626565700D0A       
-   632 000006C8 46363A206C6F616420-         db 'F6: load kernel and enter protected mode', 0xD, 0xA
-   632 000006D1 6B65726E656C20616E-
-   632 000006DA 6420656E7465722070-
-   632 000006E3 726F74656374656420-
-   632 000006EC 6D6F64650D0A       
-   633 000006F2 46373A2072656C6F61-         db 'F7: reload NuckBoot from boot device', 0xD, 0xA
-   633 000006FB 64204E75636B426F6F-
-   633 00000704 742066726F6D20626F-
-   633 0000070D 6F7420646576696365-
-   633 00000716 0D0A               
-   634 00000718 202020205669727475-         db '    Virtual piano:', 0xD, 0xA
-   634 00000721 616C207069616E6F3A-
-   634 0000072A 0D0A               
-   635 0000072C 507265737320272066-         db 'Press ', 0x27, ' for lower octave, Press ', 0x22, ' for higher octave, Press ', 0x3B, ' to reset octave', 0xD, 0xA, 0
-   635 00000735 6F72206C6F77657220-
-   635 0000073E 6F63746176652C2050-
-   635 00000747 72657373202220666F-
-   635 00000750 722068696768657220-
-   635 00000759 6F63746176652C2050-
-   635 00000762 72657373203B20746F-
-   635 0000076B 207265736574206F63-
-   635 00000774 746176650D0A00     
-   636                                  
-   637 0000077B 0D0A6C6F6164696E67-         boot_pmode_msg db 0xD, 0xA, 'loading kernel...', 0xD, 0xA, 0
-   637 00000784 206B65726E656C2E2E-
-   637 0000078D 2E0D0A00           
-   638 00000791 6B65726E656C206C6F-         kernel_loaded_msg db 'kernel loaded, switching to protected mode...', 0xD, 0xA, 0
-   638 0000079A 616465642C20737769-
-   638 000007A3 746368696E6720746F-
-   638 000007AC 2070726F7465637465-
-   638 000007B5 64206D6F64652E2E2E-
-   638 000007BE 0D0A00             
-   639 000007C1 4F41480D0A0700              beep_msg db 'OAH', 0xD, 0xA, 0x7, 0
-   640 000007C8 0D0A                        oslogo db 0xD, 0xA
-   641 000007CA 202020202020202020-         db '               _   _            _      ____              _     OS Version   ', 0xD, 0xA
-   641 000007D3 2020202020205F2020-
-   641 000007DC 205F20202020202020-
-   641 000007E5 20202020205F202020-
-   641 000007EE 2020205F5F5F5F2020-
-   641 000007F7 202020202020202020-
-   641 00000800 2020205F2020202020-
-   641 00000809 4F532056657273696F-
-   641 00000812 6E2020200D0A       
-   642 00000818 202020202020202020-         db '              | \ | |_   _  ___| | __ | __ )  ___   ___ | |_      1.0       ', 0xD, 0xA
-   642 00000821 20202020207C205C20-
-   642 0000082A 7C207C5F2020205F20-
-   642 00000833 205F5F5F7C207C205F-
-   642 0000083C 5F207C205F5F202920-
-   642 00000845 205F5F5F2020205F5F-
-   642 0000084E 5F207C207C5F202020-
-   642 00000857 202020312E30202020-
-   642 00000860 202020200D0A       
-   643 00000866 202020202020202020-         db '              |  \| | | | |/ __| |/ / |  _ \ / _ \ / _ \| __|               ', 0xD, 0xA
-   643 0000086F 20202020207C20205C-
-   643 00000878 7C207C207C207C207C-
-   643 00000881 2F205F5F7C207C2F20-
-   643 0000088A 2F207C20205F205C20-
-   643 00000893 2F205F205C202F205F-
-   643 0000089C 205C7C205F5F7C2020-
-   643 000008A5 202020202020202020-
-   643 000008AE 202020200D0A       
-   644 000008B4 202020202020202020-         db '              | |\  | |_| | (__|   <  | |_) | (_) | (_) | |_                ', 0xD, 0xA
-   644 000008BD 20202020207C207C5C-
-   644 000008C6 20207C207C5F7C207C-
-   644 000008CF 20285F5F7C2020203C-
-   644 000008D8 20207C207C5F29207C-
-   644 000008E1 20285F29207C20285F-
-   644 000008EA 29207C207C5F202020-
-   644 000008F3 202020202020202020-
-   644 000008FC 202020200D0A       
-   645 00000902 202020202020202020-         db '              |_| \_|\__,_|\___|_|\_\ |____/ \___/ \___/ \__|               ', 0xD, 0xA
-   645 0000090B 20202020207C5F7C20-
-   645 00000914 5C5F7C5C5F5F2C5F7C-
-   645 0000091D 5C5F5F5F7C5F7C5C5F-
-   645 00000926 5C207C5F5F5F5F2F20-
-   645 0000092F 5C5F5F5F2F205C5F5F-
-   645 00000938 5F2F205C5F5F7C2020-
-   645 00000941 202020202020202020-
-   645 0000094A 202020200D0A       
-   646 00000950 202020202020202020-         db '                   ', 34, 'operating system of the future', 34, ' ', 40, 'TM', 41, 0xD, 0xA, 0
-   646 00000959 202020202020202020-
-   646 00000962 20226F706572617469-
-   646 0000096B 6E672073797374656D-
-   646 00000974 206F66207468652066-
-   646 0000097D 757475726522202854-
-   646 00000986 4D290D0A00         
+   289                                  retest__disk_read_fail_final:
+   290                                      ;blocking keyboard input
+   291 00000294 31C0                        xor ax, ax
+   292 00000296 CD16                        int 0x16 ;keyboard services
+   293 00000298 E90FFE                      jmp biosboot_pc
+   294                                  
+   295                                  
+   296                                  
+   297                                  ;subroutine to play a note in virtual piano
+   298                                  ;key: al
+   299                                  hang_virtual_piano:
+   300                                      ;change mode
+   301 0000029B 50                          push ax
+   302                                  
+   303 0000029C 3C3B                        cmp al, 0x3B
+   304 0000029E 740A                        je hang_virtual_piano_mode_rst
+   305 000002A0 3C27                        cmp al, 0x27
+   306 000002A2 7415                        je hang_virtual_piano_mode_1
+   307 000002A4 3C22                        cmp al, 0x22
+   308 000002A6 7423                        je hang_virtual_piano_mode_2
+   309 000002A8 EB31                        jmp hang_virtual_piano_mode_done
+   310                                  hang_virtual_piano_mode_rst:
+   311 000002AA 31C0                        xor ax, ax
+   312 000002AC A2[8B07]                    mov [hang_virtual_piano_mode], al
+   313 000002AF 8ED8                        mov ds, ax
+   314 000002B1 BE[8C07]                    mov si, mode_rst_msg
+   315 000002B4 E8E2FD                      call _printstr
+   316 000002B7 EB22                        jmp hang_virtual_piano_mode_done
+   317                                  hang_virtual_piano_mode_1:
+   318 000002B9 B80100                      mov ax, 0x0001
+   319 000002BC A2[8B07]                    mov [hang_virtual_piano_mode], al
+   320 000002BF 31C0                        xor ax, ax
+   321 000002C1 8ED8                        mov ds, ax
+   322 000002C3 BE[9B07]                    mov si, mode_1_msg
+   323 000002C6 E8D0FD                      call _printstr    
+   324 000002C9 EB10                        jmp hang_virtual_piano_mode_done
+   325                                  hang_virtual_piano_mode_2:
+   326 000002CB B80200                      mov ax, 0x0002
+   327 000002CE A2[8B07]                    mov [hang_virtual_piano_mode], al
+   328 000002D1 31C0                        xor ax, ax
+   329 000002D3 8ED8                        mov ds, ax
+   330 000002D5 BE[A807]                    mov si, mode_2_msg
+   331 000002D8 E8BEFD                      call _printstr
+   332                                  hang_virtual_piano_mode_done:
+   333                                      ;load difference in di
+   334 000002DB 31C0                        xor ax, ax
+   335 000002DD A0[8B07]                    mov al, [hang_virtual_piano_mode]
+   336 000002E0 BB7A00                      mov bx, 122 ;byte difference between the modes defined contiguously in memory
+   337 000002E3 31D2                        xor dx, dx
+   338 000002E5 F7E3                        mul bx
+   339 000002E7 89C7                        mov di, ax
+   340 000002E9 58                          pop ax
+   341                                  
+   342 000002EA 31C9                        xor cx, cx             ;i = 0
+   343 000002EC 8B16[B607]                  mov dx, [keylen]       ;k = 10
+   344                                  hang_virtual_piano_loop:
+   345 000002F0 39D1                        cmp cx, dx
+   346 000002F2 0F8D1AFF                    jge hang               ;return if i >= k
+   347 000002F6 89CE                        mov si, cx             ;si = i
+   348 000002F8 8A9C[B807]                  mov bl, [keys + si]    ;bl = keys[i]
+   349 000002FC 38D8                        cmp al, bl             ;if pressed_key == keys[i]
+   350 000002FE 7403                        je hang_virtual_piano_play
+   351                                  
+   352 00000300 41                          inc cx                 ;i++
+   353 00000301 EBED                        jmp hang_virtual_piano_loop
+   354                                  
+   355                                  hang_virtual_piano_play:
+   356 00000303 89C8                        mov ax, cx
+   357 00000305 B90200                      mov cx, 2
+   358 00000308 F7E1                        mul cx
+   359 0000030A 89C6                        mov si, ax
+   360 0000030C B8[F507]                    mov ax, notes
+   361 0000030F 01F8                        add ax, di
+   362 00000311 01F0                        add ax, si
+   363 00000313 89C3                        mov bx, ax
+   364 00000315 8B07                        mov ax, [bx]
+   365                                      
+   366 00000317 E87900                      call _tone
+   367 0000031A B9FFFF                      mov cx, 0xFFFF
+   368 0000031D BA0500                      mov dx, 0x5
+   369 00000320 E84300                      call _wait_PIT
+   370 00000323 E89B00                      call speaker_off
+   371 00000326 E9E7FE                      jmp hang
+   372                                  
+   373                                  cls:
+   374 00000329 B93200                      mov cx, 50
+   375                                  cls_loop:
+   376 0000032C B80D0E                      mov ax, 0x0E0D
+   377 0000032F CD10                        int 0x10
+   378 00000331 B80A0E                      mov ax, 0x0E0A
+   379 00000334 CD10                        int 0x10
+   380 00000336 E2F4                        loop cls_loop
+   381 00000338 E9D5FE                      jmp hang
+   382                                  
+   383                                  ;bios beep tone
+   384                                  biosbeep:
+   385 0000033B 31C0                        xor ax, ax
+   386 0000033D 8ED8                        mov ds, ax
+   387 0000033F BE[C105]                    mov si, beep_msg
+   388 00000342 E854FD                      call _printstr
+   389 00000345 B90001                      mov cx, 0x100
+   390 00000348 E87AFD                      call _wait
+   391 0000034B E9C2FE                      jmp hang
+   392                                  
+   393                                  halt:
+   394 0000034E B93200                      mov cx, 50
+   395                                  halt_cls_loop:
+   396 00000351 B80D0E                      mov ax, 0x0E0D
+   397 00000354 CD10                        int 0x10
+   398 00000356 B80A0E                      mov ax, 0x0E0A
+   399 00000359 CD10                        int 0x10
+   400 0000035B E2F4                        loop halt_cls_loop
+   401                                      ;disable cursor
+   402 0000035D B401                        mov ah, 0x01
+   403 0000035F B90020                      mov cx, 0x2000 ;disable cursor
+   404 00000362 CD10                        int 0x10    ;int 0x10, 1: set cursor type
+   405                                  
+   406 00000364 FA                          cli
+   407 00000365 F4                          hlt
+   408                                  
+   409                                  ;dx*cx is amount of ticks to wait
+   410                                  _wait_PIT:
+   411 00000366 51                          push cx
+   412 00000367 E80500                      call _wait_PIT_once
+   413 0000036A 59                          pop cx
+   414 0000036B 4A                          dec dx
+   415 0000036C 75F8                        jnz _wait_PIT
+   416 0000036E C3                          ret
+   417                                  
+   418                                  ;cx, starting
+   419                                  ;cx is amount of ticks to wait
+   420                                  _wait_PIT_once:
+   421 0000036F 51                          push cx
+   422 00000370 E81100                      call _read_PIT_ticks
+   423 00000373 53                          push bx ;bx = starting count
+   424                                  _wait_PIT_once_loop:
+   425 00000374 E80D00                      call _read_PIT_ticks ;read the count again, store in bx
+   426                                      ;compute time difference = current count - start count
+   427 00000377 58                          pop ax      ;current count is bx, starting count is ax
+   428 00000378 29C3                        sub bx, ax  ;bx = time diff
+   429 0000037A 59                          pop cx
+   430 0000037B 51                          push cx
+   431 0000037C 50                          push ax
+   432 0000037D 39CB                        cmp bx, cx  ;if time diff < wait ticks, loop again
+   433 0000037F 7CF3                        jl _wait_PIT_once_loop
+   434 00000381 58                          pop ax
+   435 00000382 58                          pop ax
+   436 00000383 C3                          ret
+   437                                  
+   438                                  ;returns PIT ticks stored in bx
+   439                                  _read_PIT_ticks:
+   440 00000384 FA                          cli
+   441 00000385 31C0                        xor ax, ax
+   442 00000387 E643                        out 0x43, al
+   443 00000389 E440                        in al, 0x40 ;LSB
+   444 0000038B 88C3                        mov bl, al
+   445 0000038D E440                        in al, 0x40 ;MSB
+   446 0000038F 88C7                        mov bh, al
+   447 00000391 FB                          sti
+   448 00000392 C3                          ret
+   449                                  
+   450                                  ;PIT notes
+   451                                  ;I/O port     Usage
+   452                                  ;0x40         Channel 0 data port (read/write)
+   453                                  ;0x41         Channel 1 data port (read/write)
+   454                                  ;0x42         Channel 2 data port (read/write)
+   455                                  ;0x43         Mode/Command register (write only, a read is ignored)
+   456                                  ;
+   457                                  ;Bits:  7 6 5 4 3 2 1 0
+   458                                  ;       | | | | | | | +-- BCD (0 = binary, 1 = BCD)
+   459                                  ;       | | | | +--+-- Mode (0–5)
+   460                                  ;       | | +-----+-- Access Mode: 
+   461                                  ;       | |          01 = LSB, 10 = MSB, 11 = LSB+MSB
+   462                                  ;       +---- Channel (00 = ch0, 01 = ch1, 10 = ch2)
+   463                                  ;subroutine to play a tone
+   464                                  ;ax: frequency
+   465                                  _tone:
+   466 00000393 50                          push ax
+   467                                      ;calculate divisor from frequency
+   468                                      ;divisor = 1193182 / freq
+   469                                      ;load numerator into dx:ax (1193182)(0x1234DE)
+   470 00000394 BA1200                      mov dx, 0x12
+   471 00000397 B8DE34                      mov ax, 0x34DE
+   472                                      ;load denominator into bx(frequency)
+   473 0000039A 5B                          pop bx
+   474                                      ;divide
+   475 0000039B F7F3                        div bx ;dx:ax / bx, quotient ax, remainder dx
+   476 0000039D 50                          push ax ;save on stack
+   477                                  
+   478 0000039E E82000                      call speaker_off
+   479                                      ;write to PIT control register
+   480 000003A1 B0B6                        mov al, 0b10110110
+   481 000003A3 E643                        out 0x43, al ;channel 2, LSB+MSB, mode 3, binary
+   482                                      ;write divisor to channel 2 data port
+   483 000003A5 58                          pop ax         ; Divisor
+   484 000003A6 89C3                        mov bx, ax
+   485 000003A8 88D8                        mov al, bl
+   486 000003AA E642                        out 0x42, al         ; LSB first
+   487 000003AC 88F8                        mov al, bh
+   488 000003AE E642                        out 0x42, al         ; Then MSB
+   489                                      
+   490 000003B0 E80500                      call speaker_on
+   491 000003B3 31C0                        xor ax, ax
+   492 000003B5 8ED8                        mov ds, ax
+   493 000003B7 C3                          ret
+   494                                  
+   495                                  ;tell speaker to not shut up
+   496                                  speaker_on:
+   497 000003B8 FA                          cli
+   498 000003B9 E461                        in al, 0x61
+   499 000003BB 0C03                        or al, 0b11
+   500 000003BD E661                        out 0x61, al ;bit 0 enable speaker, bit 1 enable timer 2 gate(PIT square wave)
+   501 000003BF FB                          sti
+   502 000003C0 C3                          ret
+   503                                  ;tell speaker to shut up
+   504                                  speaker_off:
+   505 000003C1 FA                          cli
+   506 000003C2 E461                        in al, 0x61
+   507 000003C4 24FC                        and al, 0b11111100
+   508 000003C6 E661                        out 0x61, al
+   509 000003C8 FB                          sti
+   510 000003C9 C3                          ret
+   511                                  
+   512                                  
+   513                                  print_ax:
+   514 000003CA 60                          pusha
+   515                                  
+   516 000003CB 50                          push ax
+   517 000003CC B40E                        mov ah, 0xE
+   518 000003CE B030                        mov al, '0'
+   519 000003D0 CD10                        int 0x10
+   520 000003D2 B40E                        mov ah, 0xE
+   521 000003D4 B062                        mov al, 'b'
+   522 000003D6 CD10                        int 0x10
+   523 000003D8 58                          pop ax
+   524                                  
+   525 000003D9 89C3                        mov bx, ax
+   526 000003DB B91000                      mov cx, 16
+   527                                  print_ax_loop:
+   528 000003DE 89D8                        mov ax, bx
+   529 000003E0 83E001                      and ax, 1
+   530 000003E3 83C030                      add ax, '0'
+   531 000003E6 B40E                        mov ah, 0xE
+   532 000003E8 50                          push ax
+   533 000003E9 D1EB                        shr bx, 1
+   534 000003EB E2F1                        loop print_ax_loop
+   535 000003ED B91000                      mov cx, 16
+   536                                  print_ax_loop2:
+   537 000003F0 58                          pop ax
+   538 000003F1 CD10                        int 0x10
+   539 000003F3 E2FB                        loop print_ax_loop2
+   540 000003F5 61                          popa
+   541 000003F6 C3                          ret
+   542                                  
+   543                                  print_al:
+   544 000003F7 60                          pusha
+   545                                  
+   546 000003F8 50                          push ax
+   547 000003F9 B40E                        mov ah, 0xE
+   548 000003FB B030                        mov al, '0'
+   549 000003FD CD10                        int 0x10
+   550 000003FF B40E                        mov ah, 0xE
+   551 00000401 B062                        mov al, 'b'
+   552 00000403 CD10                        int 0x10
+   553 00000405 58                          pop ax
+   554                                  
+   555 00000406 30FF                        xor bh, bh
+   556 00000408 88C3                        mov bl, al
+   557 0000040A B90800                      mov cx, 8
+   558                                  print_al_loop:
+   559 0000040D 88D8                        mov al, bl
+   560 0000040F 2401                        and al, 1
+   561 00000411 0430                        add al, '0'
+   562 00000413 B40E                        mov ah, 0xE
+   563 00000415 50                          push ax
+   564 00000416 D0EB                        shr bl, 1
+   565 00000418 E2F3                        loop print_al_loop
+   566 0000041A B90800                      mov cx, 8
+   567                                  print_al_loop2:
+   568 0000041D 58                          pop ax
+   569 0000041E CD10                        int 0x10
+   570 00000420 E2FB                        loop print_al_loop2
+   571 00000422 61                          popa
+   572 00000423 C3                          ret
+   573                                  
+   574                                  
+   575                                  ;print value of ax in decimal
+   576                                  print_ax_decimal:
+   577 00000424 60                          pusha
+   578                                      ;push 0 for print function to end
+   579 00000425 31DB                        xor bx, bx
+   580 00000427 53                          push bx
+   581                                      ;if ax is already zero, just print a 0
+   582 00000428 09C0                        or ax, ax
+   583 0000042A 741C                        jz print_ax_decimal_zero
+   584                                  print_ax_decimal_loop:
+   585 0000042C 09C0                        or ax, ax
+   586 0000042E 740D                        jz print_ax_decimal_printloop
+   587 00000430 31D2                        xor dx, dx
+   588 00000432 BB0A00                      mov bx, 10
+   589                                      ;16 bit division, dx:ax / bx = ax, remainder dx
+   590 00000435 F7F3                        div bx
+   591                                      ;push remainder in ascii
+   592 00000437 83C230                      add dx, '0'
+   593 0000043A 52                          push dx
+   594                                      ;loop
+   595 0000043B EBEF                        jmp print_ax_decimal_loop
+   596                                  print_ax_decimal_printloop:
+   597                                      ;print digits pushed on the stack
+   598 0000043D 58                          pop ax
+   599                                      ;if popped value is 0, exit
+   600 0000043E 09C0                        or ax, ax
+   601 00000440 740D                        jz print_ax_decimal_end
+   602                                      ;print value
+   603 00000442 B40E                        mov ah, 0xE
+   604 00000444 CD10                        int 0x10
+   605 00000446 EBF5                        jmp print_ax_decimal_printloop
+   606                                  print_ax_decimal_zero:
+   607 00000448 5B                          pop bx
+   608 00000449 B40E                        mov ah, 0xE
+   609 0000044B B030                        mov al, '0'
+   610 0000044D CD10                        int 0x10
+   611                                  print_ax_decimal_end:
+   612 0000044F 61                          popa
+   613 00000450 C3                          ret
+   614                                  
+   615                                  
+   616 00000451 0D0A                        msg db 0xD, 0xA
+   617 00000453 46313A2062696F7320-         db 'F1: bios setup/restart/boot next', 0xD, 0xA
+   617 0000045C 73657475702F726573-
+   617 00000465 746172742F626F6F74-
+   617 0000046E 206E6578740D0A     
+   618 00000475 46323A207265737461-         db 'F2: restart (far jump to reset vector)', 0xD, 0xA
+   618 0000047E 72742028666172206A-
+   618 00000487 756D7020746F207265-
+   618 00000490 73657420766563746F-
+   618 00000499 72290D0A           
+   619 0000049D 46333A20636C656172-         db 'F3: clear screen', 0xD, 0xA
+   619 000004A6 2073637265656E0D0A 
+   620 000004AF 46343A2068616C740D-         db 'F4: halt', 0xD, 0xA
+   620 000004B8 0A                 
+   621 000004B9 46353A2042494F5320-         db 'F5: BIOS beep', 0xD, 0xA
+   621 000004C2 626565700D0A       
+   622 000004C8 46363A206C6F616420-         db 'F6: load kernel and enter protected mode', 0xD, 0xA
+   622 000004D1 6B65726E656C20616E-
+   622 000004DA 6420656E7465722070-
+   622 000004E3 726F74656374656420-
+   622 000004EC 6D6F64650D0A       
+   623 000004F2 46373A2072656C6F61-         db 'F7: reload NuckBoot from boot device', 0xD, 0xA
+   623 000004FB 64204E75636B426F6F-
+   623 00000504 742066726F6D20626F-
+   623 0000050D 6F7420646576696365-
+   623 00000516 0D0A               
+   624 00000518 202020205669727475-         db '    Virtual piano:', 0xD, 0xA
+   624 00000521 616C207069616E6F3A-
+   624 0000052A 0D0A               
+   625 0000052C 507265737320272066-         db 'Press ', 0x27, ' for lower octave, Press ', 0x22, ' for higher octave, Press ', 0x3B, ' to reset octave', 0xD, 0xA, 0
+   625 00000535 6F72206C6F77657220-
+   625 0000053E 6F63746176652C2050-
+   625 00000547 72657373202220666F-
+   625 00000550 722068696768657220-
+   625 00000559 6F63746176652C2050-
+   625 00000562 72657373203B20746F-
+   625 0000056B 207265736574206F63-
+   625 00000574 746176650D0A00     
+   626                                  
+   627 0000057B 0D0A6C6F6164696E67-         boot_pmode_msg db 0xD, 0xA, 'loading kernel...', 0xD, 0xA, 0
+   627 00000584 206B65726E656C2E2E-
+   627 0000058D 2E0D0A00           
+   628 00000591 6B65726E656C206C6F-         kernel_loaded_msg db 'kernel loaded, switching to protected mode...', 0xD, 0xA, 0
+   628 0000059A 616465642C20737769-
+   628 000005A3 746368696E6720746F-
+   628 000005AC 2070726F7465637465-
+   628 000005B5 64206D6F64652E2E2E-
+   628 000005BE 0D0A00             
+   629 000005C1 4F41480D0A0700              beep_msg db 'OAH', 0xD, 0xA, 0x7, 0
+   630 000005C8 0D0A                        oslogo db 0xD, 0xA
+   631 000005CA 202020202020202020-         db '               _   _            _      ____              _     OS Version   ', 0xD, 0xA
+   631 000005D3 2020202020205F2020-
+   631 000005DC 205F20202020202020-
+   631 000005E5 20202020205F202020-
+   631 000005EE 2020205F5F5F5F2020-
+   631 000005F7 202020202020202020-
+   631 00000600 2020205F2020202020-
+   631 00000609 4F532056657273696F-
+   631 00000612 6E2020200D0A       
+   632 00000618 202020202020202020-         db '              | \ | |_   _  ___| | __ | __ )  ___   ___ | |_      1.0       ', 0xD, 0xA
+   632 00000621 20202020207C205C20-
+   632 0000062A 7C207C5F2020205F20-
+   632 00000633 205F5F5F7C207C205F-
+   632 0000063C 5F207C205F5F202920-
+   632 00000645 205F5F5F2020205F5F-
+   632 0000064E 5F207C207C5F202020-
+   632 00000657 202020312E30202020-
+   632 00000660 202020200D0A       
+   633 00000666 202020202020202020-         db '              |  \| | | | |/ __| |/ / |  _ \ / _ \ / _ \| __|               ', 0xD, 0xA
+   633 0000066F 20202020207C20205C-
+   633 00000678 7C207C207C207C207C-
+   633 00000681 2F205F5F7C207C2F20-
+   633 0000068A 2F207C20205F205C20-
+   633 00000693 2F205F205C202F205F-
+   633 0000069C 205C7C205F5F7C2020-
+   633 000006A5 202020202020202020-
+   633 000006AE 202020200D0A       
+   634 000006B4 202020202020202020-         db '              | |\  | |_| | (__|   <  | |_) | (_) | (_) | |_                ', 0xD, 0xA
+   634 000006BD 20202020207C207C5C-
+   634 000006C6 20207C207C5F7C207C-
+   634 000006CF 20285F5F7C2020203C-
+   634 000006D8 20207C207C5F29207C-
+   634 000006E1 20285F29207C20285F-
+   634 000006EA 29207C207C5F202020-
+   634 000006F3 202020202020202020-
+   634 000006FC 202020200D0A       
+   635 00000702 202020202020202020-         db '              |_| \_|\__,_|\___|_|\_\ |____/ \___/ \___/ \__|               ', 0xD, 0xA
+   635 0000070B 20202020207C5F7C20-
+   635 00000714 5C5F7C5C5F5F2C5F7C-
+   635 0000071D 5C5F5F5F7C5F7C5C5F-
+   635 00000726 5C207C5F5F5F5F2F20-
+   635 0000072F 5C5F5F5F2F205C5F5F-
+   635 00000738 5F2F205C5F5F7C2020-
+   635 00000741 202020202020202020-
+   635 0000074A 202020200D0A       
+   636 00000750 202020202020202020-         db '                   ', 34, 'operating system of the future', 34, ' ', 40, 'TM', 41, 0xD, 0xA, 0
+   636 00000759 202020202020202020-
+   636 00000762 20226F706572617469-
+   636 0000076B 6E672073797374656D-
+   636 00000774 206F66207468652066-
+   636 0000077D 757475726522202854-
+   636 00000786 4D290D0A00         
+   637                                  
+   638 0000078B 00                          hang_virtual_piano_mode db 0b00
+   639                                  
+   640 0000078C 5265736574206F6374-         mode_rst_msg db 'Reset octave', 0xD, 0xA, 0
+   640 00000795 6176650D0A00       
+   641 0000079B 4C6F77206F63746176-         mode_1_msg db 'Low octave', 0xD, 0xA, 0
+   641 000007A4 650D0A00           
+   642 000007A8 48696768206F637461-         mode_2_msg db 'High octave', 0xD, 0xA, 0
+   642 000007B1 76650D0A00         
+   643                                  
+   644 000007B6 3D00                        keylen dw 61
+   645 000007B8 313233343536373839-         keys db '1234567890qwertyuiopasdfghjklzxcvbnm'
+   645 000007C1 307177657274797569-
+   645 000007CA 6F706173646667686A-
+   645 000007D3 6B6C7A786376626E6D 
+   646 000007DC 214024255E2A285157-         db '!@$%^*', 40, 'QWETYIOPSDGHJLZCVB'
+   646 000007E5 455459494F50534447-
+   646 000007EE 484A4C5A435642     
    647                                  
-   648 0000098B 00                          hang_virtual_piano_mode db 0b00
-   649                                  
-   650 0000098C 5265736574206F6374-         mode_rst_msg db 'Reset octave', 0xD, 0xA, 0
-   650 00000995 6176650D0A00       
-   651 0000099B 4C6F77206F63746176-         mode_1_msg db 'Low octave', 0xD, 0xA, 0
-   651 000009A4 650D0A00           
-   652 000009A8 48696768206F637461-         mode_2_msg db 'High octave', 0xD, 0xA, 0
-   652 000009B1 76650D0A00         
-   653                                  
-   654 000009B6 3D00                        keylen dw 61
-   655 000009B8 313233343536373839-         keys db '1234567890qwertyuiopasdfghjklzxcvbnm'
-   655 000009C1 307177657274797569-
-   655 000009CA 6F706173646667686A-
-   655 000009D3 6B6C7A786376626E6D 
-   656 000009DC 214024255E2A285157-         db '!@$%^*', 40, 'QWETYIOPSDGHJLZCVB'
-   656 000009E5 455459494F50534447-
-   656 000009EE 484A4C5A435642     
-   657                                  
-   658 000009F5 410049005200570062-         notes dw 65, 73, 82, 87, 98, 110, 123
-   658 000009FE 006E007B00         
-   659 00000A03 83009300A400AE00C4-         dw 131, 147, 164, 174, 196, 220, 246
-   659 00000A0C 00DC00F600         
-   660 00000A11 060126014A015D0188-         dw 262, 294, 330, 349, 392, 440, 494
-   660 00000A1A 01B801EE01         
-   661 00000A1F 0B024B029302BA0210-         dw 523, 587, 659, 698, 784, 880, 988
-   661 00000A28 037003DC03         
-   662 00000A2D 170497042705750520-         dw 1047, 1175, 1319, 1397, 1568, 1760, 1976
-   662 00000A36 06E006B807         
-   663 00000A3B 2D08                        dw 2093
-   664                                  
-   665 00000A3D 45004E005C00680075-         dw 69, 78, 92, 104, 117
-   665 00000A46 00                 
-   666 00000A47 8B009C00B900D000E9-         dw 139, 156, 185, 208, 233
-   666 00000A50 00                 
-   667 00000A51 1501370172019F01D2-         dw 277, 311, 370, 415, 466
-   667 00000A5A 01                 
-   668 00000A5B 2A026E02E4023F03A4-         dw 554, 622, 740, 831, 932
-   668 00000A64 03                 
-   669 00000A65 5504DD04C8057D0649-         dw 1109, 1245, 1480, 1661, 1865
-   669 00000A6E 07                 
-   670                                  
-   671 00000A6F 2100250029002C0031-         notes_low dw 33, 37, 41, 44, 49, 55, 62
-   671 00000A78 0037003E00         
-   672 00000A7D 410049005200570062-         dw 65, 73, 82, 87, 98, 110, 123
-   672 00000A86 006E007B00         
-   673 00000A8B 83009300A400AE00C4-         dw 131, 147, 164, 174, 196, 220, 246
-   673 00000A94 00DC00F600         
-   674 00000A99 060126014A015D0188-         dw 262, 294, 330, 349, 392, 440, 494
-   674 00000AA2 01B801EE01         
-   675 00000AA7 0B024B029302BA0210-         dw 523, 587, 659, 698, 784, 880, 988
-   675 00000AB0 037003DC03         
-   676 00000AB5 1704                        dw 1047
-   677                                  
-   678 00000AB7 230027002E0034003A-         dw 35, 39, 46, 52, 58
-   678 00000AC0 00                 
-   679 00000AC1 45004E005C00680075-         dw 69, 78, 92, 104, 117
-   679 00000ACA 00                 
-   680 00000ACB 8B009C00B900D000E9-         dw 139, 156, 185, 208, 233
-   680 00000AD4 00                 
-   681 00000AD5 1501370172019F01D2-         dw 277, 311, 370, 415, 466
-   681 00000ADE 01                 
-   682 00000ADF 2A026E02E4023F03A4-         dw 554, 622, 740, 831, 932
-   682 00000AE8 03                 
-   683                                  
-   684 00000AE9 83009300A400AE00C4-         notes_high dw 131, 147, 164, 174, 196, 220, 246
-   684 00000AF2 00DC00F600         
-   685 00000AF7 060126014A015D0188-         dw 262, 294, 330, 349, 392, 440, 494
-   685 00000B00 01B801EE01         
-   686 00000B05 0B024B029302BA0210-         dw 523, 587, 659, 698, 784, 880, 988
-   686 00000B0E 037003DC03         
-   687 00000B13 170497042705750520-         dw 1047, 1175, 1319, 1397, 1568, 1760, 1976
-   687 00000B1C 06E006B807         
-   688 00000B21 2D082D094D0AEA0A40-         dw 2093, 2349, 2637, 2794, 3136, 3520, 3951
-   688 00000B2A 0CC00D6F0F         
-   689 00000B2F 5A10                        dw 4186
+   648 000007F5 410049005200570062-         notes dw 65, 73, 82, 87, 98, 110, 123
+   648 000007FE 006E007B00         
+   649 00000803 83009300A400AE00C4-         dw 131, 147, 164, 174, 196, 220, 246
+   649 0000080C 00DC00F600         
+   650 00000811 060126014A015D0188-         dw 262, 294, 330, 349, 392, 440, 494
+   650 0000081A 01B801EE01         
+   651 0000081F 0B024B029302BA0210-         dw 523, 587, 659, 698, 784, 880, 988
+   651 00000828 037003DC03         
+   652 0000082D 170497042705750520-         dw 1047, 1175, 1319, 1397, 1568, 1760, 1976
+   652 00000836 06E006B807         
+   653 0000083B 2D08                        dw 2093
+   654                                  
+   655 0000083D 45004E005C00680075-         dw 69, 78, 92, 104, 117
+   655 00000846 00                 
+   656 00000847 8B009C00B900D000E9-         dw 139, 156, 185, 208, 233
+   656 00000850 00                 
+   657 00000851 1501370172019F01D2-         dw 277, 311, 370, 415, 466
+   657 0000085A 01                 
+   658 0000085B 2A026E02E4023F03A4-         dw 554, 622, 740, 831, 932
+   658 00000864 03                 
+   659 00000865 5504DD04C8057D0649-         dw 1109, 1245, 1480, 1661, 1865
+   659 0000086E 07                 
+   660                                  
+   661 0000086F 2100250029002C0031-         notes_low dw 33, 37, 41, 44, 49, 55, 62
+   661 00000878 0037003E00         
+   662 0000087D 410049005200570062-         dw 65, 73, 82, 87, 98, 110, 123
+   662 00000886 006E007B00         
+   663 0000088B 83009300A400AE00C4-         dw 131, 147, 164, 174, 196, 220, 246
+   663 00000894 00DC00F600         
+   664 00000899 060126014A015D0188-         dw 262, 294, 330, 349, 392, 440, 494
+   664 000008A2 01B801EE01         
+   665 000008A7 0B024B029302BA0210-         dw 523, 587, 659, 698, 784, 880, 988
+   665 000008B0 037003DC03         
+   666 000008B5 1704                        dw 1047
+   667                                  
+   668 000008B7 230027002E0034003A-         dw 35, 39, 46, 52, 58
+   668 000008C0 00                 
+   669 000008C1 45004E005C00680075-         dw 69, 78, 92, 104, 117
+   669 000008CA 00                 
+   670 000008CB 8B009C00B900D000E9-         dw 139, 156, 185, 208, 233
+   670 000008D4 00                 
+   671 000008D5 1501370172019F01D2-         dw 277, 311, 370, 415, 466
+   671 000008DE 01                 
+   672 000008DF 2A026E02E4023F03A4-         dw 554, 622, 740, 831, 932
+   672 000008E8 03                 
+   673                                  
+   674 000008E9 83009300A400AE00C4-         notes_high dw 131, 147, 164, 174, 196, 220, 246
+   674 000008F2 00DC00F600         
+   675 000008F7 060126014A015D0188-         dw 262, 294, 330, 349, 392, 440, 494
+   675 00000900 01B801EE01         
+   676 00000905 0B024B029302BA0210-         dw 523, 587, 659, 698, 784, 880, 988
+   676 0000090E 037003DC03         
+   677 00000913 170497042705750520-         dw 1047, 1175, 1319, 1397, 1568, 1760, 1976
+   677 0000091C 06E006B807         
+   678 00000921 2D082D094D0AEA0A40-         dw 2093, 2349, 2637, 2794, 3136, 3520, 3951
+   678 0000092A 0CC00D6F0F         
+   679 0000092F 5A10                        dw 4186
+   680                                  
+   681 00000931 8B009C00B900D000E9-         dw 139, 156, 185, 208, 233
+   681 0000093A 00                 
+   682 0000093B 1501370172019F01D2-         dw 277, 311, 370, 415, 466
+   682 00000944 01                 
+   683 00000945 2A026E02E4023F03A4-         dw 554, 622, 740, 831, 932
+   683 0000094E 03                 
+   684 0000094F 5504DD04C8057D0649-         dw 1109, 1245, 1480, 1661, 1865
+   684 00000958 07                 
+   685 00000959 A908B909900BFA0C91-         dw 2217, 2489, 2960, 3322, 3729
+   685 00000962 0E                 
+   686                                  
+   687 00000963 4B65726E656C206C6F-         kernel_load_fail db 'Kernel load failure, resetting...', 0xD, 0xA, 0
+   687 0000096C 6164206661696C7572-
+   687 00000975 652C20726573657474-
+   687 0000097E 696E672E2E2E0D0A00 
+   688 00000987 4B65726E656C206C6F-         kernel_load_fail_final db 'Kernel load failed, going back to real mode...', 0xD, 0xA, 0
+   688 00000990 6164206661696C6564-
+   688 00000999 2C20676F696E672062-
+   688 000009A2 61636B20746F207265-
+   688 000009AB 616C206D6F64652E2E-
+   688 000009B4 2E0D0A00           
+   689 000009B8 4B65726E656C206C6F-         kernel_load_success db 'Kernel load success', 0xD, 0xA, 0
+   689 000009C1 616420737563636573-
+   689 000009CA 730D0A00           
    690                                  
-   691 00000B31 8B009C00B900D000E9-         dw 139, 156, 185, 208, 233
-   691 00000B3A 00                 
-   692 00000B3B 1501370172019F01D2-         dw 277, 311, 370, 415, 466
-   692 00000B44 01                 
-   693 00000B45 2A026E02E4023F03A4-         dw 554, 622, 740, 831, 932
-   693 00000B4E 03                 
-   694 00000B4F 5504DD04C8057D0649-         dw 1109, 1245, 1480, 1661, 1865
-   694 00000B58 07                 
-   695 00000B59 A908B909900BFA0C91-         dw 2217, 2489, 2960, 3322, 3729
-   695 00000B62 0E                 
+   691 000009CE 564245206765742063-         VBEStuff_get_controller_info_success_msg db "VBE get controller info success!", 0xD, 0xA, 0
+   691 000009D7 6F6E74726F6C6C6572-
+   691 000009E0 20696E666F20737563-
+   691 000009E9 63657373210D0A00   
+   692 000009F1 564245206765742063-         VBEStuff_get_controller_info_fail_msg db "VBE get controller info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
+   692 000009FA 6F6E74726F6C6C6572-
+   692 00000A03 20696E666F20666169-
+   692 00000A0C 6C210D0A5072657373-
+   692 00000A15 20616E79206B657920-
+   692 00000A1E 746F20636F6E74696E-
+   692 00000A27 75652E2E2E0D0A00   
+   693                                  
+   694 00000A2F 56424520636F6E7472-         VBEStuff_get_controller_info_print_msg db "VBE controller info:", 0xD, 0xA, 0
+   694 00000A38 6F6C6C657220696E66-
+   694 00000A41 6F3A0D0A00         
+   695 00000A46 0D0A566964656F206D-         VBEStuff_get_controller_info_print_msg1 db 0xD, 0xA, "Video modes ptr(seg:off): ", 0
+   695 00000A4F 6F6465732070747228-
+   695 00000A58 7365673A6F6666293A-
+   695 00000A61 2000               
    696                                  
-   697                                  
-   698 00000B63 4B65726E656C206C6F-         kernel_load_fail db 'Kernel load failure, resetting...', 0xD, 0xA, 0
-   698 00000B6C 6164206661696C7572-
-   698 00000B75 652C20726573657474-
-   698 00000B7E 696E672E2E2E0D0A00 
-   699 00000B87 4B65726E656C206C6F-         kernel_load_fail_final db 'Kernel load failed, going back to real mode...', 0xD, 0xA, 0
-   699 00000B90 6164206661696C6564-
-   699 00000B99 2C20676F696E672062-
-   699 00000BA2 61636B20746F207265-
-   699 00000BAB 616C206D6F64652E2E-
-   699 00000BB4 2E0D0A00           
-   700 00000BB8 4B65726E656C206C6F-         kernel_load_success db 'Kernel load success', 0xD, 0xA, 0
-   700 00000BC1 616420737563636573-
-   700 00000BCA 730D0A00           
-   701                                  
+   697 00000A63 56424520676574206D-         VBEStuff_get_mode_info_fail_msg db "VBE get mode info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
+   697 00000A6C 6F646520696E666F20-
+   697 00000A75 6661696C210D0A5072-
+   697 00000A7E 65737320616E79206B-
+   697 00000A87 657920746F20636F6E-
+   697 00000A90 74696E75652E2E2E0D-
+   697 00000A99 0A00               
+   698                                  
+   699 00000A9B 206270703A00                print_VBE_mode_text_msg db " bpp:", 0
+   700 00000AA1 2070697463683A00            print_VBE_mode_text_msg1 db " pitch:", 0
+   701 00000AA9 206D6D3A00                  print_VBE_mode_text_msg2 db " mm:", 0
    702                                  
-   703 00000BCE 564245206765742063-         VBEStuff_get_controller_info_success_msg db "VBE get controller info success!", 0xD, 0xA, 0
-   703 00000BD7 6F6E74726F6C6C6572-
-   703 00000BE0 20696E666F20737563-
-   703 00000BE9 63657373210D0A00   
-   704 00000BF1 564245206765742063-         VBEStuff_get_controller_info_fail_msg db "VBE get controller info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
-   704 00000BFA 6F6E74726F6C6C6572-
-   704 00000C03 20696E666F20666169-
-   704 00000C0C 6C210D0A5072657373-
-   704 00000C15 20616E79206B657920-
-   704 00000C1E 746F20636F6E74696E-
-   704 00000C27 75652E2E2E0D0A00   
+   703 00000AAE 42657374206D6F6465-         VBEStuff_iter_modes_best_mode_msg db "Best mode: ", 0xD, 0xA, 0
+   703 00000AB7 3A200D0A00         
+   704 00000ABC 537769746368696E67-         VBEStuff_iter_modes_best_mode_msg1 db "Switching to VBE graphics mode... ", 0xD, 0xA, 0
+   704 00000AC5 20746F205642452067-
+   704 00000ACE 72617068696373206D-
+   704 00000AD7 6F64652E2E2E200D0A-
+   704 00000AE0 00                 
    705                                  
-   706 00000C2F 56424520636F6E7472-         VBEStuff_get_controller_info_print_msg db "VBE controller info:", 0xD, 0xA, 0
-   706 00000C38 6F6C6C657220696E66-
-   706 00000C41 6F3A0D0A00         
-   707 00000C46 0D0A566964656F206D-         VBEStuff_get_controller_info_print_msg1 db 0xD, 0xA, "Video modes ptr(seg:off): ", 0
-   707 00000C4F 6F6465732070747228-
-   707 00000C58 7365673A6F6666293A-
-   707 00000C61 2000               
+   706 00000AE1 [ED0A]                      VBE_mode_info_block_fb_support dw VBE_mode_info_block_fb_support_f
+   707 00000AE3 [E50A]                      dw VBE_mode_info_block_fb_support_t
    708                                  
-   709 00000C63 56424520676574206D-         VBEStuff_get_mode_info_fail_msg db "VBE get mode info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
-   709 00000C6C 6F646520696E666F20-
-   709 00000C75 6661696C210D0A5072-
-   709 00000C7E 65737320616E79206B-
-   709 00000C87 657920746F20636F6E-
-   709 00000C90 74696E75652E2E2E0D-
-   709 00000C99 0A00               
-   710                                  
-   711 00000C9B 206270703A00                print_VBE_mode_text_msg db " bpp:", 0
-   712 00000CA1 2070697463683A00            print_VBE_mode_text_msg1 db " pitch:", 0
-   713 00000CA9 206D6D3A00                  print_VBE_mode_text_msg2 db " mm:", 0
+   709 00000AE5 4C46423A204A4100            VBE_mode_info_block_fb_support_t db "LFB: JA", 0
+   710 00000AED 4C46423A204E45494E-         VBE_mode_info_block_fb_support_f db "LFB: NEIN", 0
+   710 00000AF6 00                 
+   711                                  
+   712                                  
+   713 00000AF7 0000                        current_mode_number dw 0
    714                                  
-   715 00000CAE 42657374206D6F6465-         VBEStuff_iter_modes_best_mode_msg db "Best mode: ", 0xD, 0xA, 0
-   715 00000CB7 3A200D0A00         
-   716                                  
-   717 00000CBC [C80C]                      VBE_mode_info_block_fb_support dw VBE_mode_info_block_fb_support_f
-   718 00000CBE [C00C]                      dw VBE_mode_info_block_fb_support_t
+   715 00000AF9 2076616C696400              check_VBE_mode_msg db ' valid', 0
+   716 00000B00 206265737400                check_VBE_mode_msg1 db ' best', 0
+   717                                  
+   718 00000B06 0000                        check_VBE_mode_best_mode_number dw 0
    719                                  
-   720 00000CC0 4C46423A204A4100            VBE_mode_info_block_fb_support_t db "LFB: JA", 0
-   721 00000CC8 4C46423A204E45494E-         VBE_mode_info_block_fb_support_f db "LFB: NEIN", 0
-   721 00000CD1 00                 
+   720 00000B08 0000                        check_VBE_mode_best_area_high dw 0
+   721 00000B0A 0000                        check_VBE_mode_best_area_low dw 0
    722                                  
-   723                                  
-   724                                  ;code segment descriptor
-   725                                  ;Base            32b: starting location of segment
-   726                                  ;Limit           20b: size of limit
-   727                                  ;Present          1b: Is this segment used/is a valid segment
-   728                                  ;Privilege        2b: (00, 01, 10, 11), 00 is highest privilege
-   729                                  ;Type             1b: 1 if segment is code or data segment
-   730                                  ;Flags(1b):
-   731                                  ;  Type flags(4b):
-   732                                  ;    1. Code? Will segment contain code
-   733                                  ;    2. Conforming: can this code be executed from lower privileged segments
-   734                                  ;            For data segment, this flag becomes direction flag, if direction=1, segment
-   735                                  ;            becomes an expand down segment
-   736                                  ;    3. Readable, can this segment be read?
-   737                                  ;            For data segment, this flag becomes writable flag, if writable=0,
-   738                                  ;            segment becomes read only
-   739                                  ;    4. Accessed: set to 1 when CPU is using the segment
-   740                                  ;  Other flags(4b):
-   741                                  ;    1. Granularity: when it is set to one the limit is multiplied by 0x1000(4096)
-   742                                  ;    2. 32 bits: Is this segment going to use 32 bit memory?
-   743                                  ;    3 & 4: 64 bit tetio, just set to 0
-   744                                  
-   745                                  ;offset of the segment descriptors relative to the beginning of the GDT
-   746                                  CODE_SEG equ GDT_code - GDT_start
-   747                                  DATA_SEG equ GDT_data - GDT_start
-   748                                  
-   749                                  ;kernel location is 0x10000
-   750                                  KERNEL_LOCATION equ 0x1000
-   751                                  
-   752                                  GDT_start:
-   753                                      GDT_null:
-   754 00000CD2 00000000                        dd 0 ;(32 bits)
-   755 00000CD6 00000000                        dd 0 ;(32 bits)
-   756                                      GDT_code:
-   757                                          ;base: 0
-   758                                          ;limit: 0xFFFFF
-   759                                          ;PPT: 1001
-   760                                          ;Type: 1010
-   761                                          ;Other: 1100
-   762                                  
-   763                                          ;first 16 bits of limit
-   764 00000CDA FFFF                            dw 0xFFFF
-   765                                          ;first 24 bits of base
-   766 00000CDC 0000                            dw 0x0000 ;16 bits
-   767 00000CDE 00                              db 0x00   ; 8 bits
-   768                                          ;PPT + Type
-   769 00000CDF 9A                              db 0b10011010
-   770                                          ;other + last 4 bits of limit
-   771 00000CE0 CF                              db 0b11001111
-   772                                          ;last 8 bits of base
-   773 00000CE1 00                              db 0b00000000
-   774                                      GDT_data:
-   775                                          ;base: 0
-   776                                          ;limit: 0xFFFFF
-   777                                          ;PPT: 1001
-   778                                          ;Type: 0010
-   779                                          ;Other: 1100
-   780                                  
-   781                                          ;first 16 bits of limit
-   782 00000CE2 FFFF                            dw 0xFFFF
-   783                                          ;first 24 bits of base
-   784 00000CE4 0000                            dw 0x0000 ;16 bits
-   785 00000CE6 00                              db 0x00   ; 8 bits
-   786                                          ;PPT + Type
-   787 00000CE7 92                              db 0b10010010
-   788                                          ;other + last 4 bits of limit
-   789 00000CE8 CF                              db 0b11001111
-   790                                          ;last 8 bits of base
-   791 00000CE9 00                              db 0b00000000
-   792                                  GDT_end:
-   793                                  GDT_descriptor:
-   794                                      ;size of GDT(16 bits)
-   795 00000CEA 1700                        dw GDT_end - GDT_start - 1
-   796                                      ;start of GDT(32 bits)
-   797 00000CEC [D20C0000]                  dd GDT_start
-   798                                  
+   723 00000B0C 0000                        check_VBE_mode_best_screen_width dw 0
+   724                                  
+   725                                  ;code segment descriptor
+   726                                  ;Base            32b: starting location of segment
+   727                                  ;Limit           20b: size of limit
+   728                                  ;Present          1b: Is this segment used/is a valid segment
+   729                                  ;Privilege        2b: (00, 01, 10, 11), 00 is highest privilege
+   730                                  ;Type             1b: 1 if segment is code or data segment
+   731                                  ;Flags(1b):
+   732                                  ;  Type flags(4b):
+   733                                  ;    1. Code? Will segment contain code
+   734                                  ;    2. Conforming: can this code be executed from lower privileged segments
+   735                                  ;            For data segment, this flag becomes direction flag, if direction=1, segment
+   736                                  ;            becomes an expand down segment
+   737                                  ;    3. Readable, can this segment be read?
+   738                                  ;            For data segment, this flag becomes writable flag, if writable=0,
+   739                                  ;            segment becomes read only
+   740                                  ;    4. Accessed: set to 1 when CPU is using the segment
+   741                                  ;  Other flags(4b):
+   742                                  ;    1. Granularity: when it is set to one the limit is multiplied by 0x1000(4096)
+   743                                  ;    2. 32 bits: Is this segment going to use 32 bit memory?
+   744                                  ;    3 & 4: 64 bit tetio, just set to 0
+   745                                  
+   746                                  ;offset of the segment descriptors relative to the beginning of the GDT
+   747                                  CODE_SEG equ GDT_code - GDT_start
+   748                                  DATA_SEG equ GDT_data - GDT_start
+   749                                  
+   750                                  ;kernel location is 0x10000
+   751                                  KERNEL_LOCATION equ 0x1000
+   752                                  
+   753                                  GDT_start:
+   754                                      GDT_null:
+   755 00000B0E 00000000                        dd 0 ;(32 bits)
+   756 00000B12 00000000                        dd 0 ;(32 bits)
+   757                                      GDT_code:
+   758                                          ;base: 0
+   759                                          ;limit: 0xFFFFF
+   760                                          ;PPT: 1001
+   761                                          ;Type: 1010
+   762                                          ;Other: 1100
+   763                                  
+   764                                          ;first 16 bits of limit
+   765 00000B16 FFFF                            dw 0xFFFF
+   766                                          ;first 24 bits of base
+   767 00000B18 0000                            dw 0x0000 ;16 bits
+   768 00000B1A 00                              db 0x00   ; 8 bits
+   769                                          ;PPT + Type
+   770 00000B1B 9A                              db 0b10011010
+   771                                          ;other + last 4 bits of limit
+   772 00000B1C CF                              db 0b11001111
+   773                                          ;last 8 bits of base
+   774 00000B1D 00                              db 0x00
+   775                                      GDT_data:
+   776                                          ;base: 0
+   777                                          ;limit: 0xFFFFF
+   778                                          ;PPT: 1001
+   779                                          ;Type: 0010
+   780                                          ;Other: 1100
+   781                                  
+   782                                          ;first 16 bits of limit
+   783 00000B1E FFFF                            dw 0xFFFF
+   784                                          ;first 24 bits of base
+   785 00000B20 0000                            dw 0x0000 ;16 bits
+   786 00000B22 00                              db 0x00   ; 8 bits
+   787                                          ;PPT + Type
+   788 00000B23 92                              db 0b10010010
+   789                                          ;other + last 4 bits of limit
+   790 00000B24 CF                              db 0b11001111
+   791                                          ;last 8 bits of base
+   792 00000B25 00                              db 0b00000000
+   793                                  GDT_end:
+   794                                  GDT_descriptor:
+   795                                      ;size of GDT(16 bits)
+   796 00000B26 1700                        dw GDT_end - GDT_start - 1
+   797                                      ;start of GDT(32 bits)
+   798 00000B28 [0E0B0000]                  dd GDT_start
    799                                  
-   800                                  _kernel_load:
-   801 00000CF0 31FF                        xor di, di ;counter for retry
-   802                                  _kernel_load_loop:
-   803                                  
-   804 00000CF2 31C0                        xor ax, ax
-   805 00000CF4 8ED8                        mov ds, ax
-   806 00000CF6 BE[CF00]                    mov si, disk_read_msg ;Reading from disk: diskNum
-   807 00000CF9 E89DF3                      call _printstr
-   808                                  
-   809                                      ;Read (al) number of sectors from ch, dh, cl, drive dl, store in es:bx
-   810 00000CFC B88002                      mov ax, 0x0280 ;ah=scancode, Read sectors | al=number of sectors to read
-   811 00000CFF B91500                      mov cx, 0x0015 ;ch=cylinder number CHS | cl=sector number CHS = 21 = 0x15
-   812 00000D02 30F6                        xor dh, dh ;head number CHS
-   813 00000D04 8A16[E200]                  mov dl, [diskNum] ;drive number
-   814                                      ;Address to store values in: es:bx
-   815 00000D08 BB0010                      mov bx, 0x1000
-   816 00000D0B 8EC3                        mov es, bx
-   817 00000D0D 31DB                        xor bx, bx
-   818                                  
-   819 00000D0F CD13                        int 0x13 ;disk read
-   820 00000D11 720B                        jc __kernel_load_fail
-   821                                  
-   822                                      ;disk read success
-   823 00000D13 31C0                        xor ax, ax
-   824 00000D15 8ED8                        mov ds, ax
-   825 00000D17 BE[B80B]                    mov si, kernel_load_success
-   826 00000D1A E87CF3                      call _printstr
-   827 00000D1D C3                          ret
-   828                                  
-   829                                  __kernel_load_fail:
-   830                                      ;if number of attempts is over or equal 8
-   831 00000D1E 83FF08                      cmp di, 8
-   832 00000D21 7D2D                        jge __kernel_load_fail_final
-   833                                  
-   834 00000D23 31C0                        xor ax, ax
-   835 00000D25 8ED8                        mov ds, ax
-   836 00000D27 BE[630B]                    mov si, kernel_load_fail
-   837 00000D2A E86CF3                      call _printstr
-   838                                  
-   839                                      ;attempt to reset disk
-   840 00000D2D 31C0                        xor ax, ax ;scancode ah = 0
-   841 00000D2F 8A16[E200]                  mov dl, [diskNum]
-   842 00000D33 CD13                        int 0x13 ;reset disk system
-   843                                  
-   844 00000D35 47                          inc di
-   845                                      ;update number of attempts
-   846 00000D36 89F8                        mov ax, di
-   847 00000D38 83C030                      add ax, '0'
-   848 00000D3B A2[EE00]                    mov [attempt_num], al
-   849                                  
-   850 00000D3E 31C0                        xor ax, ax
-   851 00000D40 8ED8                        mov ds, ax
-   852 00000D42 BE[E600]                    mov si, attempts_msg
-   853 00000D45 E851F3                      call _printstr
-   854                                  
-   855 00000D48 B90020                      mov cx, 0x2000
-   856 00000D4B E877F3                      call _wait
+   800                                  
+   801                                  _kernel_load:
+   802 00000B2C 31FF                        xor di, di ;counter for retry
+   803                                  _kernel_load_loop:
+   804                                  
+   805 00000B2E 31C0                        xor ax, ax
+   806 00000B30 8ED8                        mov ds, ax
+   807 00000B32 BE[CF00]                    mov si, disk_read_msg ;Reading from disk: diskNum
+   808 00000B35 E861F5                      call _printstr
+   809                                  
+   810                                      ;Read (al) number of sectors from ch, dh, cl, drive dl, store in es:bx
+   811 00000B38 B84002                      mov ax, 0x0240 ;ah=scancode, Read sectors | al=number of sectors to read
+   812 00000B3B B91500                      mov cx, 0x0015 ;ch=cylinder number CHS | cl=sector number CHS = 21 = 0x15
+   813 00000B3E 30F6                        xor dh, dh ;head number CHS
+   814 00000B40 8A16[E200]                  mov dl, [diskNum] ;drive number
+   815                                      ;Address to store values in: es:bx
+   816 00000B44 BB0010                      mov bx, 0x1000
+   817 00000B47 8EC3                        mov es, bx
+   818 00000B49 31DB                        xor bx, bx
+   819                                  
+   820 00000B4B CD13                        int 0x13 ;disk read
+   821 00000B4D 720D                        jc __kernel_load_fail
+   822                                  
+   823                                      ;disk read success
+   824 00000B4F 31C0                        xor ax, ax
+   825 00000B51 8ED8                        mov ds, ax
+   826 00000B53 8EC0                        mov es, ax
+   827 00000B55 BE[B809]                    mov si, kernel_load_success
+   828 00000B58 E83EF5                      call _printstr
+   829                                      
+   830 00000B5B C3                          ret
+   831                                  
+   832                                  __kernel_load_fail:
+   833                                      ;if number of attempts is over or equal 8
+   834 00000B5C 83FF08                      cmp di, 8
+   835 00000B5F 7D2D                        jge __kernel_load_fail_final
+   836                                  
+   837 00000B61 31C0                        xor ax, ax
+   838 00000B63 8ED8                        mov ds, ax
+   839 00000B65 BE[6309]                    mov si, kernel_load_fail
+   840 00000B68 E82EF5                      call _printstr
+   841                                  
+   842                                      ;attempt to reset disk
+   843 00000B6B 31C0                        xor ax, ax ;scancode ah = 0
+   844 00000B6D 8A16[E200]                  mov dl, [diskNum]
+   845 00000B71 CD13                        int 0x13 ;reset disk system
+   846                                  
+   847 00000B73 47                          inc di
+   848                                      ;update number of attempts
+   849 00000B74 89F8                        mov ax, di
+   850 00000B76 83C030                      add ax, '0'
+   851 00000B79 A2[EE00]                    mov [attempt_num], al
+   852                                  
+   853 00000B7C 31C0                        xor ax, ax
+   854 00000B7E 8ED8                        mov ds, ax
+   855 00000B80 BE[E600]                    mov si, attempts_msg
+   856 00000B83 E813F5                      call _printstr
    857                                  
-   858 00000D4E EBA2                        jmp _kernel_load_loop
-   859                                  
-   860                                  __kernel_load_fail_final:
-   861 00000D50 31C0                        xor ax, ax
-   862 00000D52 8ED8                        mov ds, ax
-   863 00000D54 BE[870B]                    mov si, kernel_load_fail_final
-   864 00000D57 E83FF3                      call _printstr
-   865 00000D5A 58                          pop ax
-   866 00000D5B E9B2F6                      jmp hang  ;go back to 16 bit hang loop if fail
-   867                                  
-   868                                  
-   869                                  
+   858 00000B86 B90020                      mov cx, 0x2000
+   859 00000B89 E839F5                      call _wait
+   860                                  
+   861 00000B8C EBA0                        jmp _kernel_load_loop
+   862                                  
+   863                                  __kernel_load_fail_final:
+   864 00000B8E 31C0                        xor ax, ax
+   865 00000B90 8ED8                        mov ds, ax
+   866 00000B92 BE[8709]                    mov si, kernel_load_fail_final
+   867 00000B95 E801F5                      call _printstr
+   868 00000B98 58                          pop ax
+   869 00000B99 E974F6                      jmp hang  ;go back to 16 bit hang loop if fail
    870                                  
-   871                                  ;FAILSTATES
-   872                                  VBEStuff_get_controller_info_fail:
-   873 00000D5E 31C0                        xor ax, ax
-   874 00000D60 8ED8                        mov ds, ax
-   875 00000D62 BE[F10B]                    mov si, VBEStuff_get_controller_info_fail_msg
-   876 00000D65 E831F3                      call _printstr
-   877                                      ;blocking keyboard input
-   878 00000D68 31C0                        xor ax, ax
-   879 00000D6A CD16                        int 0x16 ;keyboard services
-   880 00000D6C E93BF3                      jmp biosboot_pc
-   881                                  VBEStuff_get_mode_info_fail:
-   882 00000D6F 31C0                        xor ax, ax
-   883 00000D71 8ED8                        mov ds, ax
-   884 00000D73 BE[630C]                    mov si, VBEStuff_get_mode_info_fail_msg
-   885 00000D76 E820F3                      call _printstr
-   886                                      ;blocking keyboard input
-   887 00000D79 31C0                        xor ax, ax
-   888 00000D7B CD16                        int 0x16 ;keyboard services
-   889 00000D7D E92AF3                      jmp biosboot_pc
-   890                                  
-   891                                  
-   892                                  
+   871                                  
+   872                                  
+   873                                  
+   874                                  ;FAILSTATES
+   875                                  VBEStuff_get_controller_info_fail:
+   876 00000B9C 31C0                        xor ax, ax
+   877 00000B9E 8ED8                        mov ds, ax
+   878 00000BA0 BE[F109]                    mov si, VBEStuff_get_controller_info_fail_msg
+   879 00000BA3 E8F3F4                      call _printstr
+   880                                      ;blocking keyboard input
+   881 00000BA6 31C0                        xor ax, ax
+   882 00000BA8 CD16                        int 0x16 ;keyboard services
+   883 00000BAA E9FDF4                      jmp biosboot_pc
+   884                                  VBEStuff_get_mode_info_fail:
+   885 00000BAD 31C0                        xor ax, ax
+   886 00000BAF 8ED8                        mov ds, ax
+   887 00000BB1 BE[630A]                    mov si, VBEStuff_get_mode_info_fail_msg
+   888 00000BB4 E8E2F4                      call _printstr
+   889                                      ;blocking keyboard input
+   890 00000BB7 31C0                        xor ax, ax
+   891 00000BB9 CD16                        int 0x16 ;keyboard services
+   892 00000BBB E9ECF4                      jmp biosboot_pc
    893                                  
-   894                                  VBEStuff:
-   895                                      ;get controller info
-   896 00000D80 31C0                        xor ax, ax ;es:di
-   897 00000D82 8EC0                        mov es, ax
-   898 00000D84 BF[D60F]                    mov di, VBE_info_block_start    
-   899 00000D87 B8004F                      mov ax, 0x4F00 ;int 0x10, 0x4F00: get controller info
-   900 00000D8A CD10                        int 0x10
-   901 00000D8C 83F84F                      cmp ax, 0x004F
-   902 00000D8F 75CD                        jne VBEStuff_get_controller_info_fail
-   903                                  
-   904 00000D91 31C0                        xor ax, ax
-   905 00000D93 8ED8                        mov ds, ax
-   906 00000D95 BE[CE0B]                    mov si, VBEStuff_get_controller_info_success_msg
-   907 00000D98 E8FEF2                      call _printstr
-   908                                  
-   909                                      ;print controller info
-   910 00000D9B 31C0                        xor ax, ax
-   911 00000D9D 8ED8                        mov ds, ax
-   912 00000D9F BE[2F0C]                    mov si, VBEStuff_get_controller_info_print_msg
-   913 00000DA2 E8F4F2                      call _printstr
-   914                                  
-   915 00000DA5 A0[D60F]                    mov al, [VBE_info_block_signature]
-   916 00000DA8 B40E                        mov ah, 0xE
-   917 00000DAA CD10                        int 0x10
-   918 00000DAC A1[D70F]                    mov ax, [VBE_info_block_signature+1]
-   919 00000DAF B40E                        mov ah, 0xE
-   920 00000DB1 CD10                        int 0x10
-   921 00000DB3 A1[D80F]                    mov ax, [VBE_info_block_signature+2]
-   922 00000DB6 B40E                        mov ah, 0xE
-   923 00000DB8 CD10                        int 0x10
-   924 00000DBA A1[D90F]                    mov ax, [VBE_info_block_signature+3]
-   925 00000DBD B40E                        mov ah, 0xE
-   926 00000DBF CD10                        int 0x10
-   927 00000DC1 B8200E                      mov ax, 0xE20
-   928 00000DC4 CD10                        int 0x10
-   929 00000DC6 A1[DA0F]                    mov ax, [VBE_info_block_version]
-   930 00000DC9 B00E                        mov al, 0xE
-   931 00000DCB 86C4                        xchg ah, al
-   932 00000DCD 0430                        add al, '0'
-   933 00000DCF CD10                        int 0x10
-   934                                  
-   935 00000DD1 31C0                        xor ax, ax
-   936 00000DD3 8ED8                        mov ds, ax
-   937 00000DD5 BE[460C]                    mov si, VBEStuff_get_controller_info_print_msg1
-   938 00000DD8 E8BEF2                      call _printstr
-   939                                  
-   940 00000DDB A1[E60F]                    mov ax, [VBE_info_block_video_mode_segment]
-   941 00000DDE E8E9F7                      call print_ax
-   942 00000DE1 B40E                        mov ah, 0xE
-   943 00000DE3 B03A                        mov al, ':'
-   944 00000DE5 CD10                        int 0x10
-   945 00000DE7 A1[E40F]                    mov ax, [VBE_info_block_video_mode_offset]
-   946 00000DEA E8DDF7                      call print_ax
-   947                                  
-   948 00000DED B80D0E                      mov ax, 0x0E0D
-   949 00000DF0 CD10                        int 0x10
-   950 00000DF2 B80A0E                      mov ax, 0x0E0A
-   951 00000DF5 CD10                        int 0x10
-   952                                  
-   953                                      ;iter mode numbers and find the good one
-   954                                      ;get start of modes array and put into fs:si
-   955 00000DF7 A1[E60F]                    mov ax, [VBE_info_block_video_mode_segment] ;make sure fs is the correct value
-   956 00000DFA 8EE0                        mov fs, ax
-   957 00000DFC 8B36[E40F]                  mov si, [VBE_info_block_video_mode_offset]
-   958                                  VBEStuff_iter_modes_loop:
-   959 00000E00 648B04                      mov ax, fs:[si] ;ax = current mode number
-   960                                  
-   961 00000E03 50                          push ax
-   962 00000E04 0FA0                        push fs
-   963 00000E06 56                          push si
-   964                                      ;now print mode in text form
-   965 00000E07 E82500                      call print_VBE_mode_text
-   966 00000E0A 5E                          pop si
-   967 00000E0B 0FA1                        pop fs
-   968 00000E0D 58                          pop ax
-   969                                  
-   970                                      ;if mode number is 0xFFFF, exit program
-   971 00000E0E 83F8FF                      cmp ax, 0xFFFF
-   972 00000E11 740B                        je VBEStuff_iter_modes_exit
-   973                                  
-   974                                      ;BRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR BOMBARDIRO CROCODILO
-   975                                      
-   976                                      ;increment si
-   977 00000E13 83C602                      add si, 2
-   978                                      ;wait a tiny bit of time
-   979 00000E16 B90001                      mov cx, 0x100
-   980 00000E19 E8A9F2                      call _wait
-   981                                  
-   982 00000E1C EBE2                        jmp VBEStuff_iter_modes_loop
-   983                                  VBEStuff_iter_modes_exit:
-   984                                      ;print best mode number
-   985 00000E1E 31C0                        xor ax, ax
-   986 00000E20 8ED8                        mov ds, ax
-   987 00000E22 BE[AE0C]                    mov si, VBEStuff_iter_modes_best_mode_msg
-   988 00000E25 E871F2                      call _printstr
-   989                                  
-   990 00000E28 A1[E70E]                    mov ax, [check_VBE_mode_best_mode_number]
-   991 00000E2B E80100                      call print_VBE_mode_text
-   992                                  
-   993 00000E2E C3                          ret
-   994                                  
-   995                                  
+   894                                  
+   895                                  
+   896                                  
+   897                                  VBEStuff:
+   898                                      ;get controller info
+   899 00000BBE 31C0                        xor ax, ax ;es:di
+   900 00000BC0 8EC0                        mov es, ax
+   901 00000BC2 BF[310E]                    mov di, VBE_info_block_start    
+   902 00000BC5 B8004F                      mov ax, 0x4F00 ;int 0x10, 0x4F00: get controller info
+   903 00000BC8 CD10                        int 0x10
+   904 00000BCA 83F84F                      cmp ax, 0x004F
+   905 00000BCD 75CD                        jne VBEStuff_get_controller_info_fail
+   906                                  
+   907 00000BCF 31C0                        xor ax, ax
+   908 00000BD1 8ED8                        mov ds, ax
+   909 00000BD3 BE[CE09]                    mov si, VBEStuff_get_controller_info_success_msg
+   910 00000BD6 E8C0F4                      call _printstr
+   911                                  
+   912                                      ;print controller info
+   913 00000BD9 31C0                        xor ax, ax
+   914 00000BDB 8ED8                        mov ds, ax
+   915 00000BDD BE[2F0A]                    mov si, VBEStuff_get_controller_info_print_msg
+   916 00000BE0 E8B6F4                      call _printstr
+   917                                  
+   918 00000BE3 A0[310E]                    mov al, [VBE_info_block_signature]
+   919 00000BE6 B40E                        mov ah, 0xE
+   920 00000BE8 CD10                        int 0x10
+   921 00000BEA A1[320E]                    mov ax, [VBE_info_block_signature+1]
+   922 00000BED B40E                        mov ah, 0xE
+   923 00000BEF CD10                        int 0x10
+   924 00000BF1 A1[330E]                    mov ax, [VBE_info_block_signature+2]
+   925 00000BF4 B40E                        mov ah, 0xE
+   926 00000BF6 CD10                        int 0x10
+   927 00000BF8 A1[340E]                    mov ax, [VBE_info_block_signature+3]
+   928 00000BFB B40E                        mov ah, 0xE
+   929 00000BFD CD10                        int 0x10
+   930 00000BFF B8200E                      mov ax, 0xE20
+   931 00000C02 CD10                        int 0x10
+   932 00000C04 A1[350E]                    mov ax, [VBE_info_block_version]
+   933 00000C07 B00E                        mov al, 0xE
+   934 00000C09 86C4                        xchg ah, al
+   935 00000C0B 0430                        add al, '0'
+   936 00000C0D CD10                        int 0x10
+   937                                  
+   938 00000C0F 31C0                        xor ax, ax
+   939 00000C11 8ED8                        mov ds, ax
+   940 00000C13 BE[460A]                    mov si, VBEStuff_get_controller_info_print_msg1
+   941 00000C16 E880F4                      call _printstr
+   942                                  
+   943 00000C19 A1[410E]                    mov ax, [VBE_info_block_video_mode_segment]
+   944 00000C1C E8ABF7                      call print_ax
+   945 00000C1F B40E                        mov ah, 0xE
+   946 00000C21 B03A                        mov al, ':'
+   947 00000C23 CD10                        int 0x10
+   948 00000C25 A1[3F0E]                    mov ax, [VBE_info_block_video_mode_offset]
+   949 00000C28 E89FF7                      call print_ax
+   950                                  
+   951 00000C2B B80D0E                      mov ax, 0x0E0D
+   952 00000C2E CD10                        int 0x10
+   953 00000C30 B80A0E                      mov ax, 0x0E0A
+   954 00000C33 CD10                        int 0x10
+   955                                  
+   956                                      ;iter mode numbers and find the good one
+   957                                      ;get start of modes array and put into fs:si
+   958 00000C35 A1[410E]                    mov ax, [VBE_info_block_video_mode_segment] ;make sure fs is the correct value
+   959 00000C38 8EE0                        mov fs, ax
+   960 00000C3A 8B36[3F0E]                  mov si, [VBE_info_block_video_mode_offset]
+   961                                  VBEStuff_iter_modes_loop:
+   962 00000C3E 648B04                      mov ax, fs:[si] ;ax = current mode number
+   963                                  
+   964 00000C41 50                          push ax
+   965 00000C42 0FA0                        push fs
+   966 00000C44 56                          push si
+   967                                      ;now print mode in text form
+   968 00000C45 E85400                      call print_VBE_mode_text
+   969 00000C48 5E                          pop si
+   970 00000C49 0FA1                        pop fs
+   971 00000C4B 58                          pop ax
+   972                                  
+   973                                      ;if mode number is 0xFFFF, exit program
+   974 00000C4C 83F8FF                      cmp ax, 0xFFFF
+   975 00000C4F 740B                        je VBEStuff_iter_modes_exit
+   976                                  
+   977                                      ;increment si
+   978 00000C51 83C602                      add si, 2
+   979                                      ;wait a tiny bit of time
+   980 00000C54 B90003                      mov cx, 0x300
+   981 00000C57 E86BF4                      call _wait
+   982                                  
+   983 00000C5A EBE2                        jmp VBEStuff_iter_modes_loop
+   984                                  VBEStuff_iter_modes_exit:
+   985                                      ;print best mode number
+   986 00000C5C 31C0                        xor ax, ax
+   987 00000C5E 8ED8                        mov ds, ax
+   988 00000C60 BE[AE0A]                    mov si, VBEStuff_iter_modes_best_mode_msg
+   989 00000C63 E833F4                      call _printstr
+   990                                  
+   991 00000C66 A1[060B]                    mov ax, [check_VBE_mode_best_mode_number]
+   992 00000C69 E83000                      call print_VBE_mode_text
+   993                                  
+   994 00000C6C B90010                      mov cx, 0x1000
+   995 00000C6F E853F4                      call _wait
    996                                  
-   997                                  
-   998                                  
-   999                                  
-  1000                                  print_VBE_mode_text:
-  1001                                      ;save mode number here
-  1002 00000E2F A3[D80E]                    mov [current_mode_number], ax
-  1003                                  
-  1004                                      ;if mode number is 0xFFFF, exit program
-  1005 00000E32 83F8FF                      cmp ax, 0xFFFF
-  1006 00000E35 0F849E00                    je print_VBE_mode_text_end
-  1007                                  
-  1008                                      ;print value in ax
-  1009 00000E39 E88EF7                      call print_ax
-  1010                                  
-  1011                                      ;print space
-  1012 00000E3C 89C3                        mov bx, ax
-  1013 00000E3E B8200E                      mov ax, 0x0E20
-  1014 00000E41 CD10                        int 0x10
-  1015 00000E43 89D8                        mov ax, bx
-  1016                                  
-  1017                                      ;now get mode info
-  1018 00000E45 31DB                        xor bx, bx
-  1019 00000E47 8EDB                        mov ds, bx
+   997                                      ;switch to the mode
+   998 00000C72 31C0                        xor ax, ax
+   999 00000C74 8ED8                        mov ds, ax
+  1000 00000C76 BE[BC0A]                    mov si, VBEStuff_iter_modes_best_mode_msg1
+  1001 00000C79 E81DF4                      call _printstr
+  1002                                  
+  1003 00000C7C B90010                      mov cx, 0x1000
+  1004 00000C7F E843F4                      call _wait
+  1005                                  
+  1006                                      ;set video mode
+  1007 00000C82 31C0                        xor ax, ax
+  1008 00000C84 8ED8                        mov ds, ax
+  1009 00000C86 8EC0                        mov es, ax
+  1010 00000C88 89C6                        mov si, ax
+  1011 00000C8A 89C7                        mov di, ax
+  1012 00000C8C B8024F                      mov ax, 0x4F02
+  1013 00000C8F 8B1E[060B]                  mov bx, [check_VBE_mode_best_mode_number]
+  1014 00000C93 CD10                        int 0x10
+  1015                                  
+  1016 00000C95 B90010                      mov cx, 0x1000
+  1017 00000C98 E82AF4                      call _wait
+  1018 00000C9B C3                          ret
+  1019                                  
   1020                                  
-  1021 00000E49 89C1                        mov cx, ax ;cx = mode number
-  1022 00000E4B B8014F                      mov ax, 0x4F01 ;scancode
-  1023                                      ;es:di = 256b buffer
-  1024 00000E4E 31D2                        xor dx, dx
-  1025 00000E50 8EC2                        mov es, dx
-  1026 00000E52 BF[D611]                    mov di, VBE_mode_info_block_start
-  1027 00000E55 CD10                        int 0x10
-  1028 00000E57 83F84F                      cmp ax, 0x004F
-  1029 00000E5A 0F8511FF                    jne VBEStuff_get_mode_info_fail
-  1030                                  
-  1031                                  
-  1032                                      ;now print out width and height
-  1033 00000E5E 31C0                        xor ax, ax
-  1034 00000E60 8ED8                        mov ds, ax
-  1035 00000E62 A1[E811]                    mov ax, [VBE_mode_info_block_width]
-  1036 00000E65 E8BCF7                      call print_ax_decimal
-  1037 00000E68 B40E                        mov ah, 0xE
-  1038 00000E6A B078                        mov al, 'x'
-  1039 00000E6C CD10                        int 0x10
-  1040 00000E6E A1[EA11]                    mov ax, [VBE_mode_info_block_height]
-  1041 00000E71 E8B0F7                      call print_ax_decimal
-  1042 00000E74 B8200E                      mov ax, 0x0E20
-  1043 00000E77 CD10                        int 0x10
-  1044                                      ;print space
-  1045 00000E79 B8200E                      mov ax, 0x0E20
-  1046 00000E7C CD10                        int 0x10
-  1047                                      ;print if it supports linear framebuffer or not
-  1048 00000E7E 8B1E[D611]                  mov bx, [VBE_mode_info_block_attributes]
-  1049 00000E82 81E38000                    and bx, 0b10000000 ;if bit 7 is 1 it supports
-  1050 00000E86 C1EB06                      shr bx, 6
-  1051 00000E89 81C3[BC0C]                  add bx, VBE_mode_info_block_fb_support
-  1052 00000E8D 31C0                        xor ax, ax
-  1053 00000E8F 8ED8                        mov ds, ax
-  1054 00000E91 8B37                        mov si, [bx] ;pointer array shenanigans
-  1055 00000E93 E803F2                      call _printstr
-  1056                                      ;print space and msg
-  1057 00000E96 31C0                        xor ax, ax
-  1058 00000E98 8ED8                        mov ds, ax
-  1059 00000E9A BE[9B0C]                    mov si, print_VBE_mode_text_msg
-  1060 00000E9D E8F9F1                      call _printstr
-  1061                                      ;print bits per pixel
-  1062 00000EA0 31C0                        xor ax, ax
-  1063 00000EA2 A0[EF11]                    mov al, [VBE_mode_info_block_bpp]
-  1064 00000EA5 E87CF7                      call print_ax_decimal
-  1065                                      ;print space and msg
-  1066 00000EA8 31C0                        xor ax, ax
-  1067 00000EAA 8ED8                        mov ds, ax
-  1068 00000EAC BE[A90C]                    mov si, print_VBE_mode_text_msg2
-  1069 00000EAF E8E7F1                      call _printstr
-  1070                                      ;print memory model
-  1071 00000EB2 31C0                        xor ax, ax
-  1072 00000EB4 A0[F111]                    mov al, [VBE_mode_info_block_memory_model]
-  1073 00000EB7 E86AF7                      call print_ax_decimal
-  1074                                      ;print space and msg
-  1075 00000EBA 31C0                        xor ax, ax
-  1076 00000EBC 8ED8                        mov ds, ax
-  1077 00000EBE BE[A10C]                    mov si, print_VBE_mode_text_msg1
-  1078 00000EC1 E8D5F1                      call _printstr
-  1079                                      ;print pitch
-  1080 00000EC4 A1[E611]                    mov ax, [VBE_mode_info_block_pitch]
-  1081 00000EC7 E85AF7                      call print_ax_decimal
-  1082                                  
-  1083                                      ;now check if the mode is actually good
-  1084 00000ECA E82200                      call check_VBE_mode
-  1085                                  
-  1086 00000ECD B80D0E                      mov ax, 0x0E0D
-  1087 00000ED0 CD10                        int 0x10
-  1088 00000ED2 B80A0E                      mov ax, 0x0E0A
-  1089 00000ED5 CD10                        int 0x10
-  1090                                      
-  1091                                  print_VBE_mode_text_end:
-  1092 00000ED7 C3                          ret
-  1093                                  
-  1094                                  
-  1095                                  
-  1096                                  
-  1097                                  
-  1098                                  
+  1021                                  
+  1022                                  print_VBE_mode_text:
+  1023                                      ;save mode number here
+  1024 00000C9C A3[F70A]                    mov [current_mode_number], ax
+  1025                                  
+  1026                                      ;if mode number is 0xFFFF, exit program
+  1027 00000C9F 83F8FF                      cmp ax, 0xFFFF
+  1028 00000CA2 0F849900                    je print_VBE_mode_text_end
+  1029                                  
+  1030                                      ;print value in ax
+  1031 00000CA6 E821F7                      call print_ax
+  1032                                  
+  1033                                      ;print space
+  1034 00000CA9 89C3                        mov bx, ax
+  1035 00000CAB B8200E                      mov ax, 0x0E20
+  1036 00000CAE CD10                        int 0x10
+  1037 00000CB0 89D8                        mov ax, bx
+  1038                                  
+  1039                                      ;now get mode info
+  1040 00000CB2 31DB                        xor bx, bx
+  1041 00000CB4 8EDB                        mov ds, bx
+  1042                                  
+  1043 00000CB6 89C1                        mov cx, ax ;cx = mode number
+  1044 00000CB8 B8014F                      mov ax, 0x4F01 ;scancode
+  1045                                      ;es:di = 256b buffer
+  1046 00000CBB 31D2                        xor dx, dx
+  1047 00000CBD 8EC2                        mov es, dx
+  1048 00000CBF BF[3110]                    mov di, VBE_mode_info_block_start
+  1049 00000CC2 CD10                        int 0x10
+  1050 00000CC4 83F84F                      cmp ax, 0x004F
+  1051 00000CC7 0F85E2FE                    jne VBEStuff_get_mode_info_fail
+  1052                                  
+  1053                                  
+  1054                                      ;now print out width and height
+  1055 00000CCB 31C0                        xor ax, ax
+  1056 00000CCD 8ED8                        mov ds, ax
+  1057 00000CCF A1[4310]                    mov ax, [VBE_mode_info_block_width]
+  1058 00000CD2 E84FF7                      call print_ax_decimal
+  1059 00000CD5 B40E                        mov ah, 0xE
+  1060 00000CD7 B078                        mov al, 'x'
+  1061 00000CD9 CD10                        int 0x10
+  1062 00000CDB 31C0                        xor ax, ax
+  1063 00000CDD 8ED8                        mov ds, ax
+  1064 00000CDF A1[4510]                    mov ax, [VBE_mode_info_block_height]
+  1065 00000CE2 E83FF7                      call print_ax_decimal
+  1066 00000CE5 B8200E                      mov ax, 0x0E20
+  1067 00000CE8 CD10                        int 0x10
+  1068                                      ;print if it supports linear framebuffer or not
+  1069 00000CEA 31C0                        xor ax, ax
+  1070 00000CEC 8ED8                        mov ds, ax
+  1071 00000CEE 8B1E[3110]                  mov bx, [VBE_mode_info_block_attributes]
+  1072 00000CF2 81E38000                    and bx, 0b10000000 ;if bit 7 is 1 it supports
+  1073 00000CF6 C1EB06                      shr bx, 6
+  1074 00000CF9 81C3[E10A]                  add bx, VBE_mode_info_block_fb_support
+  1075 00000CFD 8B37                        mov si, [bx] ;pointer array shenanigans
+  1076 00000CFF E897F3                      call _printstr
+  1077                                      ;print space and msg
+  1078 00000D02 BE[9B0A]                    mov si, print_VBE_mode_text_msg
+  1079 00000D05 E891F3                      call _printstr
+  1080                                      ;print bits per pixel
+  1081 00000D08 31C0                        xor ax, ax
+  1082 00000D0A A0[4A10]                    mov al, [VBE_mode_info_block_bpp]
+  1083 00000D0D E814F7                      call print_ax_decimal
+  1084                                      ;print space and msg
+  1085 00000D10 BE[A90A]                    mov si, print_VBE_mode_text_msg2
+  1086 00000D13 E883F3                      call _printstr
+  1087                                      ;print memory model
+  1088 00000D16 31C0                        xor ax, ax
+  1089 00000D18 A0[4C10]                    mov al, [VBE_mode_info_block_memory_model]
+  1090 00000D1B E806F7                      call print_ax_decimal
+  1091                                      ;print space and msg
+  1092 00000D1E 31C0                        xor ax, ax
+  1093 00000D20 8ED8                        mov ds, ax
+  1094 00000D22 BE[A10A]                    mov si, print_VBE_mode_text_msg1
+  1095 00000D25 E871F3                      call _printstr
+  1096                                      ;print pitch
+  1097 00000D28 A1[4110]                    mov ax, [VBE_mode_info_block_pitch]
+  1098 00000D2B E8F6F6                      call print_ax_decimal
   1099                                  
-  1100                                  
-  1101                                  
-  1102 00000ED8 0000                    current_mode_number dw 0
-  1103                                  
-  1104 00000EDA 2076616C696400          check_VBE_mode_msg db ' valid', 0
-  1105 00000EE1 206265737400            check_VBE_mode_msg1 db ' best', 0
-  1106                                  
-  1107 00000EE7 0000                    check_VBE_mode_best_mode_number dw 0
-  1108                                  
-  1109 00000EE9 0000                    check_VBE_mode_best_area_high dw 0
-  1110 00000EEB 0000                    check_VBE_mode_best_area_low dw 0
-  1111                                  
-  1112 00000EED 0000                    check_VBE_mode_best_screen_width dw 0
+  1100                                      ;now check if the mode is actually good & find best one
+  1101 00000D2E E80F00                      call check_VBE_mode
+  1102                                  
+  1103 00000D31 B80D0E                      mov ax, 0x0E0D
+  1104 00000D34 CD10                        int 0x10
+  1105 00000D36 B80A0E                      mov ax, 0x0E0A
+  1106 00000D39 CD10                        int 0x10
+  1107                                  
+  1108 00000D3B 31C0                        xor ax, ax
+  1109 00000D3D 8ED8                        mov ds, ax
+  1110                                  print_VBE_mode_text_end:
+  1111 00000D3F C3                          ret
+  1112                                  
   1113                                  
-  1114                                  check_VBE_mode:
-  1115                                      
-  1116                                      ;if LFB is false, exit
-  1117 00000EEF A1[D611]                    mov ax, [VBE_mode_info_block_attributes]
-  1118 00000EF2 258000                      and ax, 0b10000000 ;if bit 7 is 1 it supports
-  1119 00000EF5 09C0                        or ax, ax
-  1120 00000EF7 7470                        jz check_VBE_mode_exit
-  1121                                  
-  1122                                      ;if mm is not 6, exit
-  1123 00000EF9 31C0                        xor ax, ax
-  1124 00000EFB A0[F111]                    mov al, [VBE_mode_info_block_memory_model]
-  1125 00000EFE 3C06                        cmp al, 6
-  1126 00000F00 7567                        jne check_VBE_mode_exit
-  1127                                  
-  1128                                      ;if bpp is not 32, exit
-  1129 00000F02 31C0                        xor ax, ax
-  1130 00000F04 A0[EF11]                    mov al, [VBE_mode_info_block_bpp]
-  1131 00000F07 3C20                        cmp al, 32
-  1132 00000F09 755E                        jne check_VBE_mode_exit
-  1133                                  
-  1134                                      ;print valid
-  1135 00000F0B 31C0                        xor ax, ax
-  1136 00000F0D 8ED8                        mov ds, ax
-  1137 00000F0F BE[DA0E]                    mov si, check_VBE_mode_msg
-  1138 00000F12 E884F1                      call _printstr
-  1139                                  
+  1114                                  
+  1115                                  check_VBE_mode:
+  1116                                      
+  1117                                      ;if LFB is false, exit
+  1118 00000D40 A1[3110]                    mov ax, [VBE_mode_info_block_attributes]
+  1119 00000D43 258000                      and ax, 0b10000000 ;if bit 7 is 1 it supports
+  1120 00000D46 09C0                        or ax, ax
+  1121 00000D48 7470                        jz check_VBE_mode_exit
+  1122                                  
+  1123                                      ;if mm is not 6, exit
+  1124 00000D4A 31C0                        xor ax, ax
+  1125 00000D4C A0[4C10]                    mov al, [VBE_mode_info_block_memory_model]
+  1126 00000D4F 3C06                        cmp al, 6
+  1127 00000D51 7567                        jne check_VBE_mode_exit
+  1128                                  
+  1129                                      ;if bpp is not 32, exit
+  1130 00000D53 31C0                        xor ax, ax
+  1131 00000D55 A0[4A10]                    mov al, [VBE_mode_info_block_bpp]
+  1132 00000D58 3C20                        cmp al, 32
+  1133 00000D5A 755E                        jne check_VBE_mode_exit
+  1134                                  
+  1135                                      ;print valid
+  1136 00000D5C 31C0                        xor ax, ax
+  1137 00000D5E 8ED8                        mov ds, ax
+  1138 00000D60 BE[F90A]                    mov si, check_VBE_mode_msg
+  1139 00000D63 E833F3                      call _printstr
   1140                                  
   1141                                      ;get current mode's area
-  1142 00000F15 A1[E811]                    mov ax, [VBE_mode_info_block_width]
-  1143 00000F18 8B1E[EA11]                  mov bx, [VBE_mode_info_block_height]
-  1144 00000F1C F7E3                        mul bx ;ax * bx = dx:ax, 32-bit multiplication
+  1142 00000D66 A1[4310]                    mov ax, [VBE_mode_info_block_width]
+  1143 00000D69 8B1E[4510]                  mov bx, [VBE_mode_info_block_height]
+  1144 00000D6D F7E3                        mul bx ;ax * bx = dx:ax, 32-bit multiplication
   1145                                      ;compare high word of current with best high word
-  1146 00000F1E 8B1E[E90E]                  mov bx, [check_VBE_mode_best_area_high]
-  1147 00000F22 39DA                        cmp dx, bx
-  1148 00000F24 7C43                        jl check_VBE_mode_exit ;if current < highest, nuh uh
-  1149 00000F26 7F19                        jg check_VBE_mode_update ;if current > highest, update values
+  1146 00000D6F 8B1E[080B]                  mov bx, [check_VBE_mode_best_area_high]
+  1147 00000D73 39DA                        cmp dx, bx
+  1148 00000D75 7C43                        jl check_VBE_mode_exit ;if current < highest, nuh uh
+  1149 00000D77 7F19                        jg check_VBE_mode_update ;if current > highest, update values
   1150                                      ;if equal, check low word
-  1151 00000F28 8B1E[EB0E]                  mov bx, [check_VBE_mode_best_area_low]
-  1152 00000F2C 39DA                        cmp dx, bx
-  1153 00000F2E 7C39                        jl check_VBE_mode_exit ;if current < highest, nuh uh
-  1154 00000F30 7F0F                        jg check_VBE_mode_update ;if current > highest, update values
+  1151 00000D79 8B1E[0A0B]                  mov bx, [check_VBE_mode_best_area_low]
+  1152 00000D7D 39DA                        cmp dx, bx
+  1153 00000D7F 7C39                        jl check_VBE_mode_exit ;if current < highest, nuh uh
+  1154 00000D81 7F0F                        jg check_VBE_mode_update ;if current > highest, update values
   1155                                  
   1156                                      ;if still equal, that means it's the exact same resolution
   1157                                      ;check if current screen width is more than best screen width
-  1158 00000F32 A1[E811]                    mov ax, [VBE_mode_info_block_width]
-  1159 00000F35 8B1E[ED0E]                  mov bx, [check_VBE_mode_best_screen_width]
-  1160 00000F39 39D8                        cmp ax, bx
-  1161 00000F3B 7C2C                        jl check_VBE_mode_exit ;if current < highest, nuh uh
-  1162 00000F3D 7F02                        jg check_VBE_mode_update ;if current > highest, update values
+  1158 00000D83 A1[4310]                    mov ax, [VBE_mode_info_block_width]
+  1159 00000D86 8B1E[0C0B]                  mov bx, [check_VBE_mode_best_screen_width]
+  1160 00000D8A 39D8                        cmp ax, bx
+  1161 00000D8C 7C2C                        jl check_VBE_mode_exit ;if current < highest, nuh uh
+  1162 00000D8E 7F02                        jg check_VBE_mode_update ;if current > highest, update values
   1163                                  
-  1164                                  
-  1165 00000F3F EB28                        jmp check_VBE_mode_exit
-  1166                                  check_VBE_mode_update:
-  1167                                      ;restore current mode number
-  1168 00000F41 8B1E[D80E]                  mov bx, [current_mode_number]
-  1169                                      ;update best mode number
-  1170 00000F45 891E[E70E]                  mov [check_VBE_mode_best_mode_number], bx
-  1171                                      ;update best area
-  1172 00000F49 A1[E811]                    mov ax, [VBE_mode_info_block_width]
-  1173 00000F4C 8B1E[EA11]                  mov bx, [VBE_mode_info_block_height]
-  1174 00000F50 F7E3                        mul bx ;ax * bx = dx:ax, 32-bit multiplication
-  1175 00000F52 8916[E90E]                  mov [check_VBE_mode_best_area_high], dx
-  1176 00000F56 A3[EB0E]                    mov [check_VBE_mode_best_area_low], ax
-  1177                                      ;update best screen width
-  1178 00000F59 A1[E811]                    mov ax, [VBE_mode_info_block_width]
-  1179 00000F5C A3[ED0E]                    mov [check_VBE_mode_best_screen_width], ax
-  1180                                  
-  1181                                      ;print best
-  1182 00000F5F 31C0                        xor ax, ax
-  1183 00000F61 8ED8                        mov ds, ax
-  1184 00000F63 BE[E10E]                    mov si, check_VBE_mode_msg1
-  1185 00000F66 E830F1                      call _printstr
-  1186                                  check_VBE_mode_exit:
-  1187 00000F69 C3                          ret
-  1188                                  
+  1164 00000D90 EB28                        jmp check_VBE_mode_exit
+  1165                                  check_VBE_mode_update:
+  1166                                      ;restore current mode number
+  1167 00000D92 8B1E[F70A]                  mov bx, [current_mode_number]
+  1168                                      ;update best mode number
+  1169 00000D96 891E[060B]                  mov [check_VBE_mode_best_mode_number], bx
+  1170                                      ;update best area
+  1171 00000D9A A1[4310]                    mov ax, [VBE_mode_info_block_width]
+  1172 00000D9D 8B1E[4510]                  mov bx, [VBE_mode_info_block_height]
+  1173 00000DA1 F7E3                        mul bx ;ax * bx = dx:ax, 32-bit multiplication
+  1174 00000DA3 8916[080B]                  mov [check_VBE_mode_best_area_high], dx
+  1175 00000DA7 A3[0A0B]                    mov [check_VBE_mode_best_area_low], ax
+  1176                                      ;update best screen width
+  1177 00000DAA A1[4310]                    mov ax, [VBE_mode_info_block_width]
+  1178 00000DAD A3[0C0B]                    mov [check_VBE_mode_best_screen_width], ax
+  1179                                  
+  1180                                      ;print best
+  1181 00000DB0 31C0                        xor ax, ax
+  1182 00000DB2 8ED8                        mov ds, ax
+  1183 00000DB4 BE[000B]                    mov si, check_VBE_mode_msg1
+  1184 00000DB7 E8DFF2                      call _printstr
+  1185                                  check_VBE_mode_exit:
+  1186 00000DBA 31C0                        xor ax, ax
+  1187 00000DBC 8ED8                        mov ds, ax
+  1188 00000DBE C3                          ret
   1189                                  
   1190                                  
   1191                                  
@@ -1362,141 +1366,137 @@
   1193                                  
   1194                                  
   1195                                  
-  1196                                  
-  1197                                  
-  1198                                  
-  1199                                  
-  1200                                  
+  1196                                  boot_pmode:
+  1197 00000DBF 31C0                        xor ax, ax
+  1198 00000DC1 8ED8                        mov ds, ax
+  1199 00000DC3 BE[7B05]                    mov si, boot_pmode_msg
+  1200 00000DC6 E8D0F2                      call _printstr
   1201                                  
-  1202                                  
-  1203                                  boot_pmode:
-  1204 00000F6A 31C0                        xor ax, ax
-  1205 00000F6C 8ED8                        mov ds, ax
-  1206 00000F6E BE[7B07]                    mov si, boot_pmode_msg
-  1207 00000F71 E825F1                      call _printstr
+  1202 00000DC9 E860FD                      call _kernel_load
+  1203                                  
+  1204 00000DCC 31C0                        xor ax, ax
+  1205 00000DCE 8ED8                        mov ds, ax
+  1206 00000DD0 BE[9105]                    mov si, kernel_loaded_msg
+  1207 00000DD3 E8C3F2                      call _printstr
   1208                                  
-  1209 00000F74 E879FD                      call _kernel_load
-  1210                                  
-  1211 00000F77 31C0                        xor ax, ax
-  1212 00000F79 8ED8                        mov ds, ax
-  1213 00000F7B BE[9107]                    mov si, kernel_loaded_msg
-  1214 00000F7E E818F1                      call _printstr
-  1215                                  
-  1216 00000F81 B90030                      mov cx, 0x3000
-  1217 00000F84 E83EF1                      call _wait
-  1218                                  
-  1219 00000F87 B93200                      mov cx, 50
-  1220                                  clear_loop:
-  1221 00000F8A B80D0E                      mov ax, 0x0E0D
-  1222 00000F8D CD10                        int 0x10
-  1223 00000F8F B80A0E                      mov ax, 0x0E0A
-  1224 00000F92 CD10                        int 0x10
-  1225 00000F94 E2F4                        loop clear_loop
-  1226                                      
-  1227                                      ;set new graphics mode
-  1228                                  
-  1229                                      ;Mode 3h
-  1230                                      ;VGA 80x25 text mode
-  1231 00000F96 B80300                      mov ax, 0x0003 ;ah = 0(function code), al = video mode flag
-  1232 00000F99 CD10                        int 0x10 ;bios call video services
-  1233                                      ;disable cursor
-  1234 00000F9B B401                        mov ah, 0x01
-  1235 00000F9D B90020                      mov cx, 0x2000 ;disable cursor
-  1236 00000FA0 CD10                        int 0x10 ;int 0x10, 1: set cursor type
-  1237                                  
-  1238                                      ;Mode 12h
-  1239                                      ;VGA 640x480 16 color
-  1240                                      ;mov ax, 0x0012 ;ah = 0(function code), al = video mode flag
-  1241                                      ;int 0x10 ;bios call video services
-  1242                                  
-  1243                                      ;VBE graphics
-  1244 00000FA2 E8DBFD                      call VBEStuff
-  1245                                  
-  1246 00000FA5 FA                          cli
-  1247 00000FA6 0F0116[EA0C]                lgdt [GDT_descriptor] ;load GDT
-  1248                                      
-  1249                                      ;change last bit of cr0 to 1
-  1250 00000FAB 0F20C0                      mov eax, cr0
-  1251 00000FAE 6683C801                    or eax, 1
-  1252 00000FB2 0F22C0                      mov cr0, eax
-  1253                                      
-  1254                                      ;PROTECTED MODE!
-  1255                                      ;far jump to code segment
-  1256 00000FB5 EA[BA0F]0800                jmp CODE_SEG:pmode
-  1257                                  
-  1258                                  BITS 32
-  1259                                  pmode:
-  1260 00000FBA 66B81000                    mov ax, DATA_SEG ;setup segments
-  1261 00000FBE 8ED8                        mov ds, ax
-  1262 00000FC0 8ED0                        mov ss, ax
-  1263 00000FC2 8EC0                        mov es, ax
-  1264 00000FC4 8EE0                        mov fs, ax
-  1265 00000FC6 8EE8                        mov gs, ax
-  1266 00000FC8 BDFFFF0700                  mov ebp, 0x7FFFF ;stack
-  1267 00000FCD 89EC                        mov esp, ebp
+  1209 00000DD6 B90010                      mov cx, 0x1000
+  1210 00000DD9 E8E9F2                      call _wait
+  1211                                  
+  1212 00000DDC B93200                      mov cx, 50
+  1213                                  clear_loop:
+  1214 00000DDF B80D0E                      mov ax, 0x0E0D
+  1215 00000DE2 CD10                        int 0x10
+  1216 00000DE4 B80A0E                      mov ax, 0x0E0A
+  1217 00000DE7 CD10                        int 0x10
+  1218 00000DE9 E2F4                        loop clear_loop
+  1219                                      
+  1220                                      ;set new graphics mode
+  1221                                  
+  1222                                      ;Mode 3h
+  1223                                      ;VGA 80x25 text mode
+  1224 00000DEB B80300                      mov ax, 0x0003 ;ah = 0(function code), al = video mode flag
+  1225 00000DEE CD10                        int 0x10 ;bios call video services
+  1226                                      ;disable cursor
+  1227 00000DF0 B401                        mov ah, 0x01
+  1228 00000DF2 B90020                      mov cx, 0x2000 ;disable cursor
+  1229 00000DF5 CD10                        int 0x10 ;int 0x10, 1: set cursor type
+  1230                                  
+  1231                                      ;Mode 12h
+  1232                                      ;VGA 640x480 16 color
+  1233                                      ;mov ax, 0x0012 ;ah = 0(function code), al = video mode flag
+  1234                                      ;int 0x10 ;bios call video services
+  1235                                  
+  1236                                      ;VBE graphics
+  1237 00000DF7 E8C4FD                      call VBEStuff
+  1238                                  
+  1239 00000DFA B90010                      mov cx, 0x1000
+  1240 00000DFD E8C5F2                      call _wait
+  1241                                  
+  1242 00000E00 FA                          cli
+  1243 00000E01 0F0116[260B]                lgdt [GDT_descriptor] ;load GDT
+  1244                                      
+  1245                                      ;change last bit of cr0 to 1
+  1246 00000E06 0F20C0                      mov eax, cr0
+  1247 00000E09 6683C801                    or eax, 1
+  1248 00000E0D 0F22C0                      mov cr0, eax
+  1249                                      
+  1250                                      ;PROTECTED MODE!
+  1251                                      ;far jump to code segment
+  1252 00000E10 EA[150E]0800                jmp CODE_SEG:pmode
+  1253                                  
+  1254                                  BITS 32
+  1255                                  pmode:
+  1256 00000E15 66B81000                    mov ax, DATA_SEG ;setup segments
+  1257 00000E19 8ED8                        mov ds, ax
+  1258 00000E1B 8ED0                        mov ss, ax
+  1259 00000E1D 8EC0                        mov es, ax
+  1260 00000E1F 8EE0                        mov fs, ax
+  1261 00000E21 8EE8                        mov gs, ax
+  1262 00000E23 BDFFFF0700                  mov ebp, 0x7FFFF ;stack
+  1263 00000E28 89EC                        mov esp, ebp
+  1264                                  
+  1265                                      ;jump to loaded kernel
+  1266 00000E2A E9(00000100)                jmp 0x10000
+  1267 00000E2F EBFE                        jmp $
   1268                                  
-  1269                                      ;jump to loaded kernel
-  1270 00000FCF E9(00000100)                jmp 0x10000
-  1271 00000FD4 EBFE                        jmp $
-  1272                                  
-  1273                                  
-  1274                                  
-  1275                                  
-  1276                                  
-  1277                                  ; TOTAL of 512 bytes
-  1278                                  VBE_info_block_start:
-  1279 00000FD6 4E45494E                    VBE_info_block_signature db 'NEIN'
-  1280 00000FDA 0000                        VBE_info_block_version dw 0
-  1281 00000FDC 00000000                    VBE_info_block_OEM_name_ptr dd 0 ;far ptr 32b
-  1282 00000FE0 00000000                    VBE_info_block_capabilities dd 0
-  1283 00000FE4 0000                        VBE_info_block_video_mode_offset dw 0
-  1284 00000FE6 0000                        VBE_info_block_video_mode_segment dw 0
-  1285 00000FE8 0000                        VBE_info_block_total_memory dw 0 ;count of 64k blocks
-  1286 00000FEA 00<rep 1ECh>                times 492 db 0 ;reserved
-  1287                                  VBE_info_block_end:
-  1288                                  
-  1289                                  ; TOTAL of 256 bytes
-  1290                                  VBE_mode_info_block_start:
-  1291 000011D6 0000                        VBE_mode_info_block_attributes dw 0 ;deprecated, if bit 7 is 1 supports a linear frame buffer
-  1292 000011D8 00                          VBE_mode_info_block_window_a db 0 ;deprecated
-  1293 000011D9 00                          VBE_mode_info_block_window_b db 0 ;deprecated
-  1294 000011DA 0000                        VBE_mode_info_block_granularity dw 0 ;in KB, deprecated
-  1295 000011DC 0000                        VBE_mode_info_block_window_size dw 0 ;in KB
-  1296 000011DE 0000                        VBE_mode_info_block_segment_a dw 0 ;0 if not supported
-  1297 000011E0 0000                        VBE_mode_info_block_segment_b dw 0 ;0 if not supported
-  1298 000011E2 00000000                    VBE_mode_info_block_win_func_ptr dd 0  ;deprecated, used to switch banks in pmode without going to real
-  1299 000011E6 0000                        VBE_mode_info_block_pitch dw 0 ;bytes of vram to skip to go down a line
-  1300                                  
-  1301 000011E8 0000                        VBE_mode_info_block_width dw 0 ;in pixels(graphics)/columns(text)
-  1302 000011EA 0000                        VBE_mode_info_block_height dw 0 ;in pixels(graphics)/columns(text)
-  1303 000011EC 00                          VBE_mode_info_block_char_width db 0 ;in pixels, unused
-  1304 000011ED 00                          VBE_mode_info_block_char_height db 0 ;in pixels, unused
-  1305 000011EE 00                          VBE_mode_info_block_planes_count db 0
-  1306 000011EF 00                          VBE_mode_info_block_bpp db 0 ;bits per pixel
-  1307 000011F0 00                          VBE_mode_info_block_banks_count db 0 ;deprecated, total amount of banks in the mode
-  1308 000011F1 00                          VBE_mode_info_block_memory_model db 0
-  1309 000011F2 00                          VBE_mode_info_block_bank_size db 0 ;in KB, deprecated, size of a bank
-  1310 000011F3 00                          VBE_mode_info_block_image_pages_count db 0 ;count - 1
-  1311 000011F4 00                          VBE_mode_info_block_reserved0 db 0 ;0 in revision 1.0-2.0, 1 in revision 3.0
-  1312                                  
-  1313                                      ;size and pos of masks
-  1314 000011F5 00                          VBE_mode_info_block_red_mask db 0
-  1315 000011F6 00                          VBE_mode_info_block_red_pos db 0
-  1316 000011F7 00                          VBE_mode_info_block_green_mask db 0
-  1317 000011F8 00                          VBE_mode_info_block_green_pos db 0
-  1318 000011F9 00                          VBE_mode_info_block_blue_mask db 0
-  1319 000011FA 00                          VBE_mode_info_block_blue_pos db 0
-  1320 000011FB 00                          VBE_mode_info_block_reserved_mask db 0
-  1321 000011FC 00                          VBE_mode_info_block_reserved_pos db 0
-  1322 000011FD 00                          VBE_mode_info_block_direct_color_attributes db 0
+  1269                                  
+  1270                                  
+  1271                                  ; TOTAL of 512 bytes
+  1272                                  VBE_info_block_start:
+  1273 00000E31 4E45494E                    VBE_info_block_signature db 'NEIN'
+  1274 00000E35 0000                        VBE_info_block_version dw 0
+  1275 00000E37 00000000                    VBE_info_block_OEM_name_ptr dd 0 ;far ptr 32b
+  1276 00000E3B 00000000                    VBE_info_block_capabilities dd 0
+  1277 00000E3F 0000                        VBE_info_block_video_mode_offset dw 0
+  1278 00000E41 0000                        VBE_info_block_video_mode_segment dw 0
+  1279 00000E43 0000                        VBE_info_block_total_memory dw 0 ;count of 64k blocks
+  1280 00000E45 00<rep 1ECh>                times 492 db 0 ;reserved
+  1281                                  VBE_info_block_end:
+  1282                                  ; TOTAL of 256 bytes
+  1283                                  VBE_mode_info_block_start:
+  1284 00001031 0000                        VBE_mode_info_block_attributes dw 0 ;deprecated, if bit 7 is 1 supports a linear frame buffer
+  1285 00001033 00                          VBE_mode_info_block_window_a db 0 ;deprecated
+  1286 00001034 00                          VBE_mode_info_block_window_b db 0 ;deprecated
+  1287 00001035 0000                        VBE_mode_info_block_granularity dw 0 ;in KB, deprecated
+  1288 00001037 0000                        VBE_mode_info_block_window_size dw 0 ;in KB
+  1289 00001039 0000                        VBE_mode_info_block_segment_a dw 0 ;0 if not supported
+  1290 0000103B 0000                        VBE_mode_info_block_segment_b dw 0 ;0 if not supported
+  1291 0000103D 00000000                    VBE_mode_info_block_win_func_ptr dd 0  ;deprecated, used to switch banks in pmode without going to real
+  1292 00001041 0000                        VBE_mode_info_block_pitch dw 0 ;bytes of vram to skip to go down a line
+  1293                                  
+  1294 00001043 0000                        VBE_mode_info_block_width dw 0 ;in pixels(graphics)/columns(text)
+  1295 00001045 0000                        VBE_mode_info_block_height dw 0 ;in pixels(graphics)/columns(text)
+  1296 00001047 00                          VBE_mode_info_block_char_width db 0 ;in pixels, unused
+  1297 00001048 00                          VBE_mode_info_block_char_height db 0 ;in pixels, unused
+  1298 00001049 00                          VBE_mode_info_block_planes_count db 0
+  1299 0000104A 00                          VBE_mode_info_block_bpp db 0 ;bits per pixel
+  1300 0000104B 00                          VBE_mode_info_block_banks_count db 0 ;deprecated, total amount of banks in the mode
+  1301 0000104C 00                          VBE_mode_info_block_memory_model db 0
+  1302 0000104D 00                          VBE_mode_info_block_bank_size db 0 ;in KB, deprecated, size of a bank
+  1303 0000104E 00                          VBE_mode_info_block_image_pages_count db 0 ;count - 1
+  1304 0000104F 00                          VBE_mode_info_block_reserved0 db 0 ;0 in revision 1.0-2.0, 1 in revision 3.0
+  1305                                  
+  1306                                      ;size and pos of masks
+  1307 00001050 00                          VBE_mode_info_block_red_mask db 0
+  1308 00001051 00                          VBE_mode_info_block_red_pos db 0
+  1309 00001052 00                          VBE_mode_info_block_green_mask db 0
+  1310 00001053 00                          VBE_mode_info_block_green_pos db 0
+  1311 00001054 00                          VBE_mode_info_block_blue_mask db 0
+  1312 00001055 00                          VBE_mode_info_block_blue_pos db 0
+  1313 00001056 00                          VBE_mode_info_block_reserved_mask db 0
+  1314 00001057 00                          VBE_mode_info_block_reserved_pos db 0
+  1315 00001058 00                          VBE_mode_info_block_direct_color_attributes db 0
+  1316                                  
+  1317                                      ;added in revision 2.0
+  1318 00001059 00000000                    VBE_mode_info_block_framebuffer dd 0 ;physical address of the framebuffer, write here
+  1319 0000105D 00000000                    VBE_mode_info_block_off_screen_mem_offset dd 0 
+  1320 00001061 0000                        VBE_mode_info_block_off_screen_mem_size dw 0 ;in KB, size of memory in framebuffer but not being displayed on the screen
+  1321 00001063 00<rep CEh>                 VBE_mode_info_block_reserved times 206 db 0 ;available in revision 3.0, useless
+  1322                                  VBE_mode_info_block_end:
   1323                                  
-  1324                                      ;added in revision 2.0
-  1325 000011FE 00000000                    VBE_mode_info_block_framebuffer dd 0 ;physical address of the framebuffer, write here
-  1326 00001202 00000000                    VBE_mode_info_block_off_screen_mem_offset dd 0 
-  1327 00001206 0000                        VBE_mode_info_block_off_screen_mem_size dw 0 ;in KB, size of memory in framebuffer but not being displayed on the screen
-  1328 00001208 CE                          VBE_mode_info_block_reserved db 206 ;available in revision 3.0, useless
-  1329                                  VBE_mode_info_block_end:
-  1330                                  
-  1331                                  
-  1332 00001209 00<rep 15F7h>           times 10240-($-$$) db 0 ;total length of binary 20 sector
-  1333                                                          ;total length of disk 22 sectors, 1:code, 2-3:partition info 4-10:codedb 0x69
+  1324                                  
+  1325                                  
+  1326                                  
+  1327                                  
+  1328 00001131 00<rep 16CFh>           times 10240-($-$$) db 0 ;total length of binary 20 sector
+  1329                                                          ;total length of disk 22 sectors, 1:code, 2-3:partition info 4-10:codedb 0x69
