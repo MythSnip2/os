@@ -10,6 +10,10 @@ start_boot:
     ;disable interrupts
     cli
 
+;make sure running on 0:7C00, not 7C0:0
+    jmp 0x0000:start_nuckboot
+    
+start_nuckboot:
     ;zero out the segment registers
     xor ax, ax
     mov ds, ax
@@ -49,8 +53,8 @@ _disk_read_loop:
     call _printstr
 
     ;Read (al) number of sectors from ch, dh, cl, drive dl, store in es:bx
-    ;Read 19(0x13) sectors starting from 0:0:2 in drive dl, store in 0x7E00
-    mov ax, 0x0213 ;ah=scancode, Read sectors | al=number of sectors to read
+    ;Read 59 sectors starting from 0:0:2 in drive dl, store in 0x7E00
+    mov ax, 0x023B ;ah=scancode, Read sectors | al=number of sectors to read
     mov cx, 0x0002 ;ch=cylinder number CHS | cl=sector number CHS
     xor dh, dh ;head number CHS
     mov dl, [diskNum] ;drive number
@@ -192,6 +196,243 @@ times 510-($-$$) db 0 ;510B excluding boot signature
 db 0x55, 0xAA
 ; end of first sector, 512B -----------------------------------------------------------------------------------------------
 
+    ;Data    
+    msg db 'F1: bios setup/restart/boot next    '
+    db 'F2: restart (far jump to reset vector)', 0xD, 0xA
+    db 'F3: clear screen                    '
+    db 'F4: halt', 0xD, 0xA
+    db 'F5: BIOS beep                       '
+    db 'F6: load kernel and enter pmode', 0xD, 0xA
+    db 'F7: reload NuckBoot from dev', 0xD, 0xA
+    db 'F8 - F11: set kernel gfx test mode', 0xD, 0xA
+    db '    Virtual piano:', 0xD, 0xA
+    db 'Press ', 0x27, ' for lower octave, Press ', 0x22, ' for higher octave, Press ', 0x3B, ' to reset octave', 0xD, 0xA, 0
+
+    boot_pmode_msg db 0xD, 0xA, 'loading kernel...', 0xD, 0xA, 0
+    kernel_loaded_msg db 'kernel loaded, switching to protected mode...', 0xD, 0xA, 0
+    beep_msg db 'OAH', 0xD, 0xA, 0x7, 0
+    oslogo db 0xD, 0xA
+    db '               _   _            _      ____              _     OS Version   ', 0xD, 0xA
+    db '              | \ | |_   _  ___| | __ | __ )  ___   ___ | |_      1.01      ', 0xD, 0xA
+    db '              |  \| | | | |/ __| |/ / |  _ \ / _ \ / _ \| __|               ', 0xD, 0xA
+    db '              | |\  | |_| | (__|   <  | |_) | (_) | (_) | |_                ', 0xD, 0xA
+    db '              |_| \_|\__,_|\___|_|\_\ |____/ \___/ \___/ \__|               ', 0xD, 0xA
+    db '                   ', 34, 'operating system of the future', 34, ' ', 40, 'TM', 41, 0xD, 0xA, 0
+
+    hang_virtual_piano_mode db 0b00
+
+    mode_rst_msg db 'Reset octave', 0xD, 0xA, 0
+    mode_1_msg db 'Low octave', 0xD, 0xA, 0
+    mode_2_msg db 'High octave', 0xD, 0xA, 0
+
+    keylen dw 61
+    keys db '1234567890qwertyuiopasdfghjklzxcvbnm'
+    db '!@$%^*', 40, 'QWETYIOPSDGHJLZCVB'
+
+    notes dw 65, 73, 82, 87, 98, 110, 123
+    dw 131, 147, 164, 174, 196, 220, 246
+    dw 262, 294, 330, 349, 392, 440, 494
+    dw 523, 587, 659, 698, 784, 880, 988
+    dw 1047, 1175, 1319, 1397, 1568, 1760, 1976
+    dw 2093
+
+    dw 69, 78, 92, 104, 117
+    dw 139, 156, 185, 208, 233
+    dw 277, 311, 370, 415, 466
+    dw 554, 622, 740, 831, 932
+    dw 1109, 1245, 1480, 1661, 1865
+
+    notes_low dw 33, 37, 41, 44, 49, 55, 62
+    dw 65, 73, 82, 87, 98, 110, 123
+    dw 131, 147, 164, 174, 196, 220, 246
+    dw 262, 294, 330, 349, 392, 440, 494
+    dw 523, 587, 659, 698, 784, 880, 988
+    dw 1047
+
+    dw 35, 39, 46, 52, 58
+    dw 69, 78, 92, 104, 117
+    dw 139, 156, 185, 208, 233
+    dw 277, 311, 370, 415, 466
+    dw 554, 622, 740, 831, 932
+
+    notes_high dw 131, 147, 164, 174, 196, 220, 246
+    dw 262, 294, 330, 349, 392, 440, 494
+    dw 523, 587, 659, 698, 784, 880, 988
+    dw 1047, 1175, 1319, 1397, 1568, 1760, 1976
+    dw 2093, 2349, 2637, 2794, 3136, 3520, 3951
+    dw 4186
+
+    dw 139, 156, 185, 208, 233
+    dw 277, 311, 370, 415, 466
+    dw 554, 622, 740, 831, 932
+    dw 1109, 1245, 1480, 1661, 1865
+    dw 2217, 2489, 2960, 3322, 3729
+
+    kernel_load_fail db 'Kernel load failure, resetting...', 0xD, 0xA, 0
+    kernel_load_fail_final db 'Kernel load failed, going back to real mode...', 0xD, 0xA, 0
+    kernel_load_success db 'Kernel load success', 0xD, 0xA, 0
+
+    VBEStuff_get_controller_info_success_msg db "VBE get controller info success!", 0xD, 0xA, 0
+    VBEStuff_get_controller_info_fail_msg db "VBE get controller info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
+
+    VBEStuff_get_controller_info_print_msg db "VBE controller info:", 0xD, 0xA, 0
+    VBEStuff_get_controller_info_print_msg1 db 0xD, 0xA, "Video modes ptr(seg:off): ", 0
+
+    VBEStuff_get_mode_info_fail_msg db "VBE get mode info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
+
+    print_VBE_mode_text_msg db " bpp:", 0
+    print_VBE_mode_text_msg1 db " pitch:", 0
+    print_VBE_mode_text_msg2 db " mm:", 0
+
+    VBEStuff_iter_modes_best_mode_msg db "Best mode: ", 0xD, 0xA, 0
+    VBEStuff_iter_modes_best_mode_msg1 db "Switching to VBE graphics mode... ", 0xD, 0xA, 0
+
+    VBE_mode_info_block_fb_support dw VBE_mode_info_block_fb_support_f
+    dw VBE_mode_info_block_fb_support_t
+
+    VBE_mode_info_block_fb_support_t db "LFB: JA", 0
+    VBE_mode_info_block_fb_support_f db "LFB: NEIN", 0
+
+    current_mode_number dw 0
+
+    check_VBE_mode_msg db ' valid', 0
+    check_VBE_mode_msg1 db ' best', 0
+
+    check_VBE_mode_best_mode_number dw 0
+
+    check_VBE_mode_best_area_high dw 0
+    check_VBE_mode_best_area_low dw 0
+
+    check_VBE_mode_best_screen_width dw 0
+
+;code segment descriptor
+;Base            32b: starting location of segment
+;Limit           20b: size of limit
+;Present          1b: Is this segment used/is a valid segment
+;Privilege        2b: (00, 01, 10, 11), 00 is highest privilege
+;Type             1b: 1 if segment is code or data segment
+;Flags(1b):
+;  Type flags(4b):
+;    1. Code? Will segment contain code
+;    2. Conforming: can this code be executed from lower privileged segments
+;            For data segment, this flag becomes direction flag, if direction=1, segment
+;            becomes an expand down segment
+;    3. Readable, can this segment be read?
+;            For data segment, this flag becomes writable flag, if writable=0,
+;            segment becomes read only
+;    4. Accessed: set to 1 when CPU is using the segment
+;  Other flags(4b):
+;    1. Granularity: when it is set to one the limit is multiplied by 0x1000(4096)
+;    2. 32 bits: Is this segment going to use 32 bit memory?
+;    3 & 4: 64 bit tetio, just set to 0
+
+;offset of the segment descriptors relative to the beginning of the GDT
+CODE_SEG equ GDT_code - GDT_start
+DATA_SEG equ GDT_data - GDT_start
+
+;kernel location is 0x10000
+KERNEL_LOCATION equ 0x1000
+
+GDT_start:
+    GDT_null:
+        dd 0 ;(32 bits)
+        dd 0 ;(32 bits)
+    GDT_code:
+        ;base: 0
+        ;limit: 0xFFFFF
+        ;PPT: 1001
+        ;Type: 1010
+        ;Other: 1100
+
+        ;first 16 bits of limit
+        dw 0xFFFF
+        ;first 24 bits of base
+        dw 0x0000 ;16 bits
+        db 0x00   ; 8 bits
+        ;PPT + Type
+        db 0b10011010
+        ;other + last 4 bits of limit
+        db 0b11001111
+        ;last 8 bits of base
+        db 0x00
+    GDT_data:
+        ;base: 0
+        ;limit: 0xFFFFF
+        ;PPT: 1001
+        ;Type: 0010
+        ;Other: 1100
+
+        ;first 16 bits of limit
+        dw 0xFFFF
+        ;first 24 bits of base
+        dw 0x0000 ;16 bits
+        db 0x00   ; 8 bits
+        ;PPT + Type
+        db 0b10010010
+        ;other + last 4 bits of limit
+        db 0b11001111
+        ;last 8 bits of base
+        db 0b00000000
+GDT_end:
+GDT_descriptor:
+    ;size of GDT(16 bits)
+    dw GDT_end - GDT_start - 1
+    ;start of GDT(32 bits)
+    dd GDT_start
+
+kernel_test_mode db 1
+; TOTAL of 512 bytes
+VBE_info_block_start:
+    VBE_info_block_signature db 'NEIN'
+    VBE_info_block_version dw 0
+    VBE_info_block_OEM_name_ptr dd 0 ;far ptr 32b
+    VBE_info_block_capabilities dd 0
+    VBE_info_block_video_mode_offset dw 0
+    VBE_info_block_video_mode_segment dw 0
+    VBE_info_block_total_memory dw 0 ;count of 64k blocks
+    times 492 db 0 ;reserved
+
+; TOTAL of 256 bytes
+VBE_mode_info_block_start:
+    VBE_mode_info_block_attributes dw 0 ;deprecated, if bit 7 is 1 supports a linear frame buffer
+    VBE_mode_info_block_window_a db 0 ;deprecated
+    VBE_mode_info_block_window_b db 0 ;deprecated
+    VBE_mode_info_block_granularity dw 0 ;in KB, deprecated
+    VBE_mode_info_block_window_size dw 0 ;in KB
+    VBE_mode_info_block_segment_a dw 0 ;0 if not supported
+    VBE_mode_info_block_segment_b dw 0 ;0 if not supported
+    VBE_mode_info_block_win_func_ptr dd 0  ;deprecated, used to switch banks in pmode without going to real
+    VBE_mode_info_block_pitch dw 0 ;bytes of vram to skip to go down a line
+
+    VBE_mode_info_block_width dw 0 ;in pixels(graphics)/columns(text)
+    VBE_mode_info_block_height dw 0 ;in pixels(graphics)/columns(text)
+    VBE_mode_info_block_char_width db 0 ;in pixels, unused
+    VBE_mode_info_block_char_height db 0 ;in pixels, unused
+    VBE_mode_info_block_planes_count db 0
+    VBE_mode_info_block_bpp db 0 ;bits per pixel
+    VBE_mode_info_block_banks_count db 0 ;deprecated, total amount of banks in the mode
+    VBE_mode_info_block_memory_model db 0
+    VBE_mode_info_block_bank_size db 0 ;in KB, deprecated, size of a bank
+    VBE_mode_info_block_image_pages_count db 0 ;count - 1
+    VBE_mode_info_block_reserved0 db 0 ;0 in revision 1.0-2.0, 1 in revision 3.0
+
+    ;size and pos of masks
+    VBE_mode_info_block_red_mask db 0
+    VBE_mode_info_block_red_pos db 0
+    VBE_mode_info_block_green_mask db 0
+    VBE_mode_info_block_green_pos db 0
+    VBE_mode_info_block_blue_mask db 0
+    VBE_mode_info_block_blue_pos db 0
+    VBE_mode_info_block_reserved_mask db 0
+    VBE_mode_info_block_reserved_pos db 0
+    VBE_mode_info_block_direct_color_attributes db 0
+
+    ;added in revision 2.0
+    VBE_mode_info_block_framebuffer dd 0 ;physical address of the framebuffer, write here
+    VBE_mode_info_block_off_screen_mem_offset dd 0 
+    VBE_mode_info_block_off_screen_mem_size dw 0 ;in KB, size of memory in framebuffer but not being displayed on the screen
+    VBE_mode_info_block_reserved times 206 db 0 ;available in revision 3.0, useless
+
 
 main:
     xor ax, ax
@@ -233,10 +474,37 @@ hang:
     cmp ah, 0x41
     je retest
 
+    ;sets mode for the kernel to have different behaviors
+    cmp ah, 0x42
+    je kernel_test_1
+    cmp ah, 0x43
+    je kernel_test_2
+    cmp ah, 0x44
+    je kernel_test_3
+    cmp ah, 0x85
+    je kernel_test_4
+
+
+
     push ax
     call hang_virtual_piano
     pop ax
 
+    jmp hang
+
+kernel_test_1:
+    mov bx, 1
+    jmp kernel_test_oah
+kernel_test_2:
+    mov bx, 2
+    jmp kernel_test_oah
+kernel_test_3:
+    mov bx, 3
+    jmp kernel_test_oah
+kernel_test_4:
+    mov bx, 4
+kernel_test_oah:
+    mov [kernel_test_mode], bl
     jmp hang
 
 ;subroutine to retest nuck os
@@ -613,191 +881,6 @@ print_ax_decimal_end:
     ret
 
 
-    msg db 0xD, 0xA
-    db 'F1: bios setup/restart/boot next', 0xD, 0xA
-    db 'F2: restart (far jump to reset vector)', 0xD, 0xA
-    db 'F3: clear screen', 0xD, 0xA
-    db 'F4: halt', 0xD, 0xA
-    db 'F5: BIOS beep', 0xD, 0xA
-    db 'F6: load kernel and enter protected mode', 0xD, 0xA
-    db 'F7: reload NuckBoot from boot device', 0xD, 0xA
-    db '    Virtual piano:', 0xD, 0xA
-    db 'Press ', 0x27, ' for lower octave, Press ', 0x22, ' for higher octave, Press ', 0x3B, ' to reset octave', 0xD, 0xA, 0
-
-    boot_pmode_msg db 0xD, 0xA, 'loading kernel...', 0xD, 0xA, 0
-    kernel_loaded_msg db 'kernel loaded, switching to protected mode...', 0xD, 0xA, 0
-    beep_msg db 'OAH', 0xD, 0xA, 0x7, 0
-    oslogo db 0xD, 0xA
-    db '               _   _            _      ____              _     OS Version   ', 0xD, 0xA
-    db '              | \ | |_   _  ___| | __ | __ )  ___   ___ | |_      1.0       ', 0xD, 0xA
-    db '              |  \| | | | |/ __| |/ / |  _ \ / _ \ / _ \| __|               ', 0xD, 0xA
-    db '              | |\  | |_| | (__|   <  | |_) | (_) | (_) | |_                ', 0xD, 0xA
-    db '              |_| \_|\__,_|\___|_|\_\ |____/ \___/ \___/ \__|               ', 0xD, 0xA
-    db '                   ', 34, 'operating system of the future', 34, ' ', 40, 'TM', 41, 0xD, 0xA, 0
-
-    hang_virtual_piano_mode db 0b00
-
-    mode_rst_msg db 'Reset octave', 0xD, 0xA, 0
-    mode_1_msg db 'Low octave', 0xD, 0xA, 0
-    mode_2_msg db 'High octave', 0xD, 0xA, 0
-
-    keylen dw 61
-    keys db '1234567890qwertyuiopasdfghjklzxcvbnm'
-    db '!@$%^*', 40, 'QWETYIOPSDGHJLZCVB'
-
-    notes dw 65, 73, 82, 87, 98, 110, 123
-    dw 131, 147, 164, 174, 196, 220, 246
-    dw 262, 294, 330, 349, 392, 440, 494
-    dw 523, 587, 659, 698, 784, 880, 988
-    dw 1047, 1175, 1319, 1397, 1568, 1760, 1976
-    dw 2093
-
-    dw 69, 78, 92, 104, 117
-    dw 139, 156, 185, 208, 233
-    dw 277, 311, 370, 415, 466
-    dw 554, 622, 740, 831, 932
-    dw 1109, 1245, 1480, 1661, 1865
-
-    notes_low dw 33, 37, 41, 44, 49, 55, 62
-    dw 65, 73, 82, 87, 98, 110, 123
-    dw 131, 147, 164, 174, 196, 220, 246
-    dw 262, 294, 330, 349, 392, 440, 494
-    dw 523, 587, 659, 698, 784, 880, 988
-    dw 1047
-
-    dw 35, 39, 46, 52, 58
-    dw 69, 78, 92, 104, 117
-    dw 139, 156, 185, 208, 233
-    dw 277, 311, 370, 415, 466
-    dw 554, 622, 740, 831, 932
-
-    notes_high dw 131, 147, 164, 174, 196, 220, 246
-    dw 262, 294, 330, 349, 392, 440, 494
-    dw 523, 587, 659, 698, 784, 880, 988
-    dw 1047, 1175, 1319, 1397, 1568, 1760, 1976
-    dw 2093, 2349, 2637, 2794, 3136, 3520, 3951
-    dw 4186
-
-    dw 139, 156, 185, 208, 233
-    dw 277, 311, 370, 415, 466
-    dw 554, 622, 740, 831, 932
-    dw 1109, 1245, 1480, 1661, 1865
-    dw 2217, 2489, 2960, 3322, 3729
-
-    kernel_load_fail db 'Kernel load failure, resetting...', 0xD, 0xA, 0
-    kernel_load_fail_final db 'Kernel load failed, going back to real mode...', 0xD, 0xA, 0
-    kernel_load_success db 'Kernel load success', 0xD, 0xA, 0
-
-    VBEStuff_get_controller_info_success_msg db "VBE get controller info success!", 0xD, 0xA, 0
-    VBEStuff_get_controller_info_fail_msg db "VBE get controller info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
-
-    VBEStuff_get_controller_info_print_msg db "VBE controller info:", 0xD, 0xA, 0
-    VBEStuff_get_controller_info_print_msg1 db 0xD, 0xA, "Video modes ptr(seg:off): ", 0
-
-    VBEStuff_get_mode_info_fail_msg db "VBE get mode info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
-
-    print_VBE_mode_text_msg db " bpp:", 0
-    print_VBE_mode_text_msg1 db " pitch:", 0
-    print_VBE_mode_text_msg2 db " mm:", 0
-
-    VBEStuff_iter_modes_best_mode_msg db "Best mode: ", 0xD, 0xA, 0
-    VBEStuff_iter_modes_best_mode_msg1 db "Switching to VBE graphics mode... ", 0xD, 0xA, 0
-
-    VBE_mode_info_block_fb_support dw VBE_mode_info_block_fb_support_f
-    dw VBE_mode_info_block_fb_support_t
-
-    VBE_mode_info_block_fb_support_t db "LFB: JA", 0
-    VBE_mode_info_block_fb_support_f db "LFB: NEIN", 0
-
-
-    current_mode_number dw 0
-
-    check_VBE_mode_msg db ' valid', 0
-    check_VBE_mode_msg1 db ' best', 0
-
-    check_VBE_mode_best_mode_number dw 0
-
-    check_VBE_mode_best_area_high dw 0
-    check_VBE_mode_best_area_low dw 0
-
-    check_VBE_mode_best_screen_width dw 0
-
-;code segment descriptor
-;Base            32b: starting location of segment
-;Limit           20b: size of limit
-;Present          1b: Is this segment used/is a valid segment
-;Privilege        2b: (00, 01, 10, 11), 00 is highest privilege
-;Type             1b: 1 if segment is code or data segment
-;Flags(1b):
-;  Type flags(4b):
-;    1. Code? Will segment contain code
-;    2. Conforming: can this code be executed from lower privileged segments
-;            For data segment, this flag becomes direction flag, if direction=1, segment
-;            becomes an expand down segment
-;    3. Readable, can this segment be read?
-;            For data segment, this flag becomes writable flag, if writable=0,
-;            segment becomes read only
-;    4. Accessed: set to 1 when CPU is using the segment
-;  Other flags(4b):
-;    1. Granularity: when it is set to one the limit is multiplied by 0x1000(4096)
-;    2. 32 bits: Is this segment going to use 32 bit memory?
-;    3 & 4: 64 bit tetio, just set to 0
-
-;offset of the segment descriptors relative to the beginning of the GDT
-CODE_SEG equ GDT_code - GDT_start
-DATA_SEG equ GDT_data - GDT_start
-
-;kernel location is 0x10000
-KERNEL_LOCATION equ 0x1000
-
-GDT_start:
-    GDT_null:
-        dd 0 ;(32 bits)
-        dd 0 ;(32 bits)
-    GDT_code:
-        ;base: 0
-        ;limit: 0xFFFFF
-        ;PPT: 1001
-        ;Type: 1010
-        ;Other: 1100
-
-        ;first 16 bits of limit
-        dw 0xFFFF
-        ;first 24 bits of base
-        dw 0x0000 ;16 bits
-        db 0x00   ; 8 bits
-        ;PPT + Type
-        db 0b10011010
-        ;other + last 4 bits of limit
-        db 0b11001111
-        ;last 8 bits of base
-        db 0x00
-    GDT_data:
-        ;base: 0
-        ;limit: 0xFFFFF
-        ;PPT: 1001
-        ;Type: 0010
-        ;Other: 1100
-
-        ;first 16 bits of limit
-        dw 0xFFFF
-        ;first 24 bits of base
-        dw 0x0000 ;16 bits
-        db 0x00   ; 8 bits
-        ;PPT + Type
-        db 0b10010010
-        ;other + last 4 bits of limit
-        db 0b11001111
-        ;last 8 bits of base
-        db 0b00000000
-GDT_end:
-GDT_descriptor:
-    ;size of GDT(16 bits)
-    dw GDT_end - GDT_start - 1
-    ;start of GDT(32 bits)
-    dd GDT_start
-
-
 _kernel_load:
     xor di, di ;counter for retry
 _kernel_load_loop:
@@ -808,7 +891,7 @@ _kernel_load_loop:
     call _printstr
 
     ;Read (al) number of sectors from ch, dh, cl, drive dl, store in es:bx
-    mov ax, 0x0240 ;ah=scancode, Read sectors | al=number of sectors to read
+    mov ax, 0x0280 ;ah=scancode, Read sectors | al=number of sectors to read
     mov cx, 0x0015 ;ch=cylinder number CHS | cl=sector number CHS = 21 = 0x15
     xor dh, dh ;head number CHS
     mov dl, [diskNum] ;drive number
@@ -823,7 +906,6 @@ _kernel_load_loop:
     ;disk read success
     xor ax, ax
     mov ds, ax
-    mov es, ax
     mov si, kernel_load_success
     call _printstr
     
@@ -869,8 +951,6 @@ __kernel_load_fail_final:
     jmp hang  ;go back to 16 bit hang loop if fail
 
 
-
-
 ;FAILSTATES
 VBEStuff_get_controller_info_fail:
     xor ax, ax
@@ -890,9 +970,6 @@ VBEStuff_get_mode_info_fail:
     xor ax, ax
     int 0x16 ;keyboard services
     jmp biosboot_pc
-
-
-
 
 VBEStuff:
     ;get controller info
@@ -970,14 +1047,15 @@ VBEStuff_iter_modes_loop:
     pop fs
     pop ax
 
+
     ;if mode number is 0xFFFF, exit program
     cmp ax, 0xFFFF
     je VBEStuff_iter_modes_exit
 
     ;increment si
     add si, 2
-    ;wait a tiny bit of time
-    mov cx, 0x300
+
+    mov cx, 0x100
     call _wait
 
     jmp VBEStuff_iter_modes_loop
@@ -991,8 +1069,6 @@ VBEStuff_iter_modes_exit:
     mov ax, [check_VBE_mode_best_mode_number]
     call print_VBE_mode_text
 
-    mov cx, 0x1000
-    call _wait
 
     ;switch to the mode
     xor ax, ax
@@ -1000,22 +1076,25 @@ VBEStuff_iter_modes_exit:
     mov si, VBEStuff_iter_modes_best_mode_msg1
     call _printstr
 
-    mov cx, 0x1000
+    ;print which mode is actually doing
+    mov al, [kernel_test_mode]
+    add al, '0'
+    mov ah, 0xE
+    int 0x10
+
+    mov cx, 0x3000
     call _wait
+
 
     ;set video mode
     xor ax, ax
     mov ds, ax
-    mov es, ax
-    mov si, ax
-    mov di, ax
     mov ax, 0x4F02
     mov bx, [check_VBE_mode_best_mode_number]
     int 0x10
 
-    mov cx, 0x1000
-    call _wait
     ret
+
 
 
 
@@ -1037,10 +1116,10 @@ print_VBE_mode_text:
     mov ax, bx
 
     ;now get mode info
-    xor bx, bx
-    mov ds, bx
+    xor ax, ax
+    mov ds, ax
 
-    mov cx, ax ;cx = mode number
+    mov cx, bx ;cx = mode number
     mov ax, 0x4F01 ;scancode
     ;es:di = 256b buffer
     xor dx, dx
@@ -1050,21 +1129,17 @@ print_VBE_mode_text:
     cmp ax, 0x004F
     jne VBEStuff_get_mode_info_fail
 
-
     ;now print out width and height
-    xor ax, ax
-    mov ds, ax
     mov ax, [VBE_mode_info_block_width]
     call print_ax_decimal
     mov ah, 0xE
     mov al, 'x'
     int 0x10
-    xor ax, ax
-    mov ds, ax
     mov ax, [VBE_mode_info_block_height]
     call print_ax_decimal
     mov ax, 0x0E20
     int 0x10
+
     ;print if it supports linear framebuffer or not
     xor ax, ax
     mov ds, ax
@@ -1109,6 +1184,8 @@ print_VBE_mode_text:
     mov ds, ax
 print_VBE_mode_text_end:
     ret
+
+
 
 
 
@@ -1183,8 +1260,6 @@ check_VBE_mode_update:
     mov si, check_VBE_mode_msg1
     call _printstr
 check_VBE_mode_exit:
-    xor ax, ax
-    mov ds, ax
     ret
 
 
@@ -1223,10 +1298,6 @@ clear_loop:
     ;VGA 80x25 text mode
     mov ax, 0x0003 ;ah = 0(function code), al = video mode flag
     int 0x10 ;bios call video services
-    ;disable cursor
-    mov ah, 0x01
-    mov cx, 0x2000 ;disable cursor
-    int 0x10 ;int 0x10, 1: set cursor type
 
     ;Mode 12h
     ;VGA 640x480 16 color
@@ -1235,9 +1306,6 @@ clear_loop:
 
     ;VBE graphics
     call VBEStuff
-
-    mov cx, 0x1000
-    call _wait
 
     cli
     lgdt [GDT_descriptor] ;load GDT
@@ -1268,62 +1336,7 @@ pmode:
 
 
 
-; TOTAL of 512 bytes
-VBE_info_block_start:
-    VBE_info_block_signature db 'NEIN'
-    VBE_info_block_version dw 0
-    VBE_info_block_OEM_name_ptr dd 0 ;far ptr 32b
-    VBE_info_block_capabilities dd 0
-    VBE_info_block_video_mode_offset dw 0
-    VBE_info_block_video_mode_segment dw 0
-    VBE_info_block_total_memory dw 0 ;count of 64k blocks
-    times 492 db 0 ;reserved
-VBE_info_block_end:
-; TOTAL of 256 bytes
-VBE_mode_info_block_start:
-    VBE_mode_info_block_attributes dw 0 ;deprecated, if bit 7 is 1 supports a linear frame buffer
-    VBE_mode_info_block_window_a db 0 ;deprecated
-    VBE_mode_info_block_window_b db 0 ;deprecated
-    VBE_mode_info_block_granularity dw 0 ;in KB, deprecated
-    VBE_mode_info_block_window_size dw 0 ;in KB
-    VBE_mode_info_block_segment_a dw 0 ;0 if not supported
-    VBE_mode_info_block_segment_b dw 0 ;0 if not supported
-    VBE_mode_info_block_win_func_ptr dd 0  ;deprecated, used to switch banks in pmode without going to real
-    VBE_mode_info_block_pitch dw 0 ;bytes of vram to skip to go down a line
 
-    VBE_mode_info_block_width dw 0 ;in pixels(graphics)/columns(text)
-    VBE_mode_info_block_height dw 0 ;in pixels(graphics)/columns(text)
-    VBE_mode_info_block_char_width db 0 ;in pixels, unused
-    VBE_mode_info_block_char_height db 0 ;in pixels, unused
-    VBE_mode_info_block_planes_count db 0
-    VBE_mode_info_block_bpp db 0 ;bits per pixel
-    VBE_mode_info_block_banks_count db 0 ;deprecated, total amount of banks in the mode
-    VBE_mode_info_block_memory_model db 0
-    VBE_mode_info_block_bank_size db 0 ;in KB, deprecated, size of a bank
-    VBE_mode_info_block_image_pages_count db 0 ;count - 1
-    VBE_mode_info_block_reserved0 db 0 ;0 in revision 1.0-2.0, 1 in revision 3.0
-
-    ;size and pos of masks
-    VBE_mode_info_block_red_mask db 0
-    VBE_mode_info_block_red_pos db 0
-    VBE_mode_info_block_green_mask db 0
-    VBE_mode_info_block_green_pos db 0
-    VBE_mode_info_block_blue_mask db 0
-    VBE_mode_info_block_blue_pos db 0
-    VBE_mode_info_block_reserved_mask db 0
-    VBE_mode_info_block_reserved_pos db 0
-    VBE_mode_info_block_direct_color_attributes db 0
-
-    ;added in revision 2.0
-    VBE_mode_info_block_framebuffer dd 0 ;physical address of the framebuffer, write here
-    VBE_mode_info_block_off_screen_mem_offset dd 0 
-    VBE_mode_info_block_off_screen_mem_size dw 0 ;in KB, size of memory in framebuffer but not being displayed on the screen
-    VBE_mode_info_block_reserved times 206 db 0 ;available in revision 3.0, useless
-VBE_mode_info_block_end:
+times 30720-($-$$) db 0 ;total length of binary 60 sector
 
 
-
-
-
-times 10240-($-$$) db 0 ;total length of binary 20 sector
-                        ;total length of disk 22 sectors, 1:code, 2-3:partition info 4-10:codedb 0x69

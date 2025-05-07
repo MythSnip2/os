@@ -30,7 +30,7 @@ NUCK OS
 0x7E00 - 0xA3FF   NuckBootLoader
 0x10000 - 0x20000 Nuck OS Kernel
       <-- 0x7FFFF Nuck OS stack
-
+0x100000---       Nuck OS VESA back framebuffer
 
 
 

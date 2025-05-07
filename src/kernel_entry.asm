@@ -7,3 +7,12 @@ call loadIDT
 call main
 
 jmp $
+
+
+
+
+
+
+
+
+
