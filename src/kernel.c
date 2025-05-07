@@ -7,6 +7,84 @@
 
 
 
+
+void main(){
+    uint32_t kernelDataOffset = 0x7C00 + 0x914;
+
+    struct VBE_info_block* VESAControllerInfo = (struct VBE_info_block*) ((uint32_t)(kernelDataOffset + 1)); //Fixed address
+    struct VBE_mode_info_block* VESAModeInfo = (struct VBE_mode_info_block*) ((uint32_t)(kernelDataOffset + 0x201)); //Fixed address
+
+    uint16_t width = (uint16_t)VESAModeInfo->width;
+    uint16_t height = (uint16_t)VESAModeInfo->height;
+    uint16_t pitch = (uint16_t)VESAModeInfo->pitch;
+    char* vram = (char*)VESAModeInfo->framebuffer;
+    char* backbuffer = (char*)0x100000;
+
+    uint32_t vramSize = height*pitch;
+
+    char* str = "   --- NUCK OS KERNEL RUNNING VGA---                            ";
+    VGAPrintString(0, str, 0xD);
+
+    uint8_t testMode = *(uint8_t*) kernelDataOffset;
+    if(testMode == 1){
+        for(uint32_t o=0;true;o+=(pitch*5)){
+            flipVram(vram, (char*)o, vramSize);
+        }
+    }
+    else if(testMode == 2){
+        int x = 100;
+        int y = 100;
+        int w = 160;
+        int h = 160;
+    
+        int velx = 16;
+        int vely = 7;
+    
+        while(true){
+            x += velx;
+            y += vely;
+    
+            //detect collision
+            if(y + h > height){
+                y = height - h;
+                vely = -vely;
+            }
+            if(y < 1){
+                y = 1;
+                vely = -vely;
+            }
+            if(x + w > width){
+                x = width - w;
+                velx = -velx;
+            }
+            if(x < 1){
+                x = 1;
+                velx = -velx;
+            }
+    
+            VESADrawRect(1, 1, width, height, true, hex(0, 0, 0), width, height, pitch, backbuffer);
+            VESADrawRect(x, y, x+w, y+h, true, hex(0xB1, 0xE3, 0x52), width, height, pitch, backbuffer);
+            flipVram(vram, backbuffer, vramSize);
+        }
+    }
+    else if(testMode == 3){
+        //calculate one stripe
+        uint16_t frac = (height)/5;
+        VESADrawRect(0, 1, width-1, frac, true, hex(0x55, 0xCD, 0xFC), width, height, pitch, backbuffer);
+        VESADrawRect(0, frac+2, width-1, frac*2, true, hex(0xF7, 0xA8, 0xB8), width, height, pitch, backbuffer);
+        VESADrawRect(0, frac*2+2, width-1, frac*3, true, hex(0xFF, 0xFF, 0xFF), width, height, pitch, backbuffer);
+        VESADrawRect(0, frac*3+2, width-1, frac*4, true, hex(0xF7, 0xA8, 0xB8), width, height, pitch, backbuffer);
+        VESADrawRect(0, frac*4+2, width-1, frac*5, true, hex(0x55, 0xCD, 0xFC), width, height, pitch, backbuffer);
+        flipVram(vram, backbuffer, vramSize);
+    }
+    else if(testMode == 4){
+    
+    }
+
+    return;
+}
+
+
 static inline void outb(unsigned short port, unsigned char val){
     __asm__ __volatile__ (
         "out dx, al" 
@@ -145,15 +223,13 @@ void VGADrawRect(int x1, int y1, int x2, int y2, bool fill, unsigned char VGACol
     }
 }
 
-
-
-static inline void VESAPutPixel(int x, int y, uint32_t color, char* vram){
+static inline void VESAPutPixel(int x, int y, uint32_t color, uint16_t width, uint16_t height, uint16_t pitch, char* vram){
     if (x < 0 || x >= width-1 || y < 0 || y >= height-1){
         return;
     }
     *(uint32_t*)(y * (pitch) + (vram) + x * 4) = color;
 }
-void VESADrawRect(int x1, int y1, int x2, int y2, bool fill, uint32_t color, char* vram){
+void VESADrawRect(int x1, int y1, int x2, int y2, bool fill, uint32_t color, uint16_t width, uint16_t height, uint16_t pitch, char* vram){
     //convert x, y to memory address
     int xmax = ((x1 > x2) ? x1 : x2);
     int xmin = ((x1 > x2) ? x2 : x1);
@@ -165,7 +241,7 @@ void VESADrawRect(int x1, int y1, int x2, int y2, bool fill, uint32_t color, cha
             VESAPutPixel(x, ymin, color, width, height, pitch, vram);
             VESAPutPixel(x, ymax, color, width, height, pitch, vram);
         }
-        for(int y = ymin;y <= ymax;y++){
+        for(int y = ymin+1;y < ymax;y++){
             VESAPutPixel(xmin, y, color, width, height, pitch, vram);
             VESAPutPixel(xmax, y, color, width, height, pitch, vram);
         }
@@ -178,6 +254,7 @@ void VESADrawRect(int x1, int y1, int x2, int y2, bool fill, uint32_t color, cha
         }
     }
 }
+
 static inline uint32_t hex(uint8_t r, uint8_t g, uint8_t b){
     return ((uint32_t)0 << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
 }
@@ -194,127 +271,5 @@ void* memcpy(void* dest, void* src, size_t size){
 void flipVram(char* vram, char* backbuffer, uint32_t vramSize){
     memcpy(vram, backbuffer, vramSize);
 }
-
-void VESATerminal(uint8_t charWidth, uint8_t charHeight, void* fontPtr){
-    VESADrawRect(1, 1, width, height, true, hex(0, 0, 0), width, height, pitch, vram);
-    uint16_t screenW = width / charWidth;
-    uint16_t screenH = width / charHeight;
-    uint16_t cursorX = 0;
-    uint16_t cursorY = 0;
-}
-
-
-
-
-struct VBE_info_block* VESAControllerInfo; //Fixed address
-struct VBE_mode_info_block* VESAModeInfo; //Fixed address
-
-uint16_t width;
-uint16_t height;
-uint16_t pitch;
-char* vram;
-char* backbuffer;
-
-uint32_t vramSize;
-
-char fontMap[] = {
-    {0, 0, 0, 0, 0, 0, 0, 0},
-    {0, 0, 0, 0, 0, 0, 0, 0},
-    {0, 0, 0, 0, 0, 0, 0, 0},
-    {0, 0, 0, 0, 0, 0, 0, 0},
-    {0, 0, 0, 0, 0, 0, 0, 0},
-    {0, 0, 0, 0, 0, 0, 0, 0},
-    {0, 0, 0, 0, 0, 0, 0, 0},
-    {0, 0, 0, 0, 0, 0, 0, 0},
-    {0, 0, 0, 0, 0, 0, 0, 0},
-    {0, 0, 0, 0, 0, 0, 0, 0},
-    {0, 0, 0, 0, 0, 0, 0, 0},
-    {0, 0, 0, 0, 0, 0, 0, 0},
-    {0, 0, 0, 0, 0, 0, 0, 0},
-    {0, 0, 0, 0, 0, 0, 0, 0},
-    {0, 0, 0, 0, 0, 0, 0, 0},
-    {0, 0, 0, 0, 0, 0, 0, 0},
-};
-
-void main(){
-    char* str = "   --- NUCK OS KERNEL RUNNING VGA---                            ";
-    VGAPrintString(0, str, 0xD);
-
-
-    uint32_t kernelDataOffset = 0x7C00 + 0x915;
-
-    VBE_info_block* VESAControllerInfo = (struct VBE_info_block*) ((uint32_t)(kernelDataOffset + 1)); //Fixed address
-    VBE_mode_info_block* VESAModeInfo = (struct VBE_mode_info_block*) ((uint32_t)(kernelDataOffset + 0x201)); //Fixed address
-
-    width = (uint16_t)VESAModeInfo->width;
-    height = (uint16_t)VESAModeInfo->height;
-    pitch = (uint16_t)VESAModeInfo->pitch;
-    vram = (char*)VESAModeInfo->framebuffer;
-    backbuffer = (char*)0x100000;
-
-    vramSize = height*pitch;
-
-
-    char testMode = *(char*) kernelDataOffset;
-    if(testMode == 1){
-        for(uint32_t o=0;true;o+=(50*pitch)){
-            flipVram(vram, (char*)o, vramSize);
-        }
-    }
-    else if(testMode == 2){
-        int x = 100;
-        int y = 100;
-        int w = 160;
-        int h = 160;
-    
-        int velx = 16;
-        int vely = 7;
-    
-        while(true){
-            x += velx;
-            y += vely;
-    
-            //detect collision
-            if(y + h > height-1){
-                y = height-1 - h;
-                vely = -vely;
-            }
-            if(y < 0){
-                y = 0;
-                vely = -vely;
-            }
-            if(x + w > width-1){
-                x = width-1 - w;
-                velx = -velx;
-            }
-            if(x < 0){
-                x = 0;
-                velx = -velx;
-            }
-    
-            VESADrawRect(0, 0, width-1, height-1, true, hex(0, 0, 0), backbuffer);
-            VESADrawRect(x, y, x+w, y+h, true, hex(0xB1, 0xE3, 0x82), backbuffer);
-            flipVram(vram, backbuffer, vramSize);
-        }
-    }
-    else if(testMode == 3){
-        //calculate one stripe
-        uint16_t frac = (height-1)/5;
-        VESADrawRect(0, 0, width-1, frac, true, hex(0x55, 0xCD, 0xFC), width, height, pitch, backbuffer);
-        VESADrawRect(0, frac+1, width-1, frac*2, true, hex(0xF7, 0xA8, 0xB8), width, height, pitch, backbuffer);
-        VESADrawRect(0, frac*2+1, width-1, frac*3, true, hex(0xFF, 0xFF, 0xFF), width, height, pitch, backbuffer);
-        VESADrawRect(0, frac*3+1, width-1, frac*4, true, hex(0xF7, 0xA8, 0xB8), width, height, pitch, backbuffer);
-        VESADrawRect(0, frac*4+1, width-1, frac*5, true, hex(0x55, 0xCD, 0xFC), width, height, pitch, backbuffer);
-        flipVram(vram, backbuffer, vramSize);
-    }
-    else if(testMode == 4){
-        //VESATerminalPrint();
-    }
-
-    return;
-}
-
-
-
 
 
