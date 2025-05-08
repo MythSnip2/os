@@ -1,7 +1,25 @@
 #include <nuck_stddef.h>
 #include <nuck_VBE.h>
 
+//------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+static inline void outb(unsigned short port, unsigned char val);
+static inline unsigned char inb(unsigned short port);
+static inline void io_wait();
+static inline void wait_ticks(int t);
+void VGATextWriteChar_addr(int addr, char c, unsigned char VGAColor);
+void VGATextWriteChar(int x, int y, char c, unsigned char VGAColor);
+void VGAPrintString(int addr, char* str, unsigned char VGAColor);
+void VGAPrintChars(int addr, char* str, int num, unsigned char VGAColor);
+void VGATextDrawRect(int x1, int y1, int x2, int y2, char c, bool fill, unsigned char VGAColor);
+static inline void VGASetPlane(unsigned char plane);
+void VGAPutPixel(int x, int y, unsigned char color);
+void VGADrawRect(int x1, int y1, int x2, int y2, bool fill, unsigned char VGAColor);
+static inline void VESAPutPixel(int x, int y, uint32_t color, uint16_t width, uint16_t height, uint16_t pitch, char* vram);
+void VESADrawRect(int x1, int y1, int x2, int y2, bool fill, uint32_t color, uint16_t width, uint16_t height, uint16_t pitch, char* vram);
+static inline uint32_t hex(uint8_t r, uint8_t g, uint8_t b);
+void* memcpy(void* dest, void* src, size_t size);
+void flipVram(char* vram, char* backbuffer, uint32_t vramSize);
 
 
 
@@ -9,7 +27,7 @@
 
 
 void main(){
-    uint32_t kernelDataOffset = 0x7C00 + 0x914;
+    uint32_t kernelDataOffset = 0x7C00 + 0x200;
 
     struct VBE_info_block* VESAControllerInfo = (struct VBE_info_block*) ((uint32_t)(kernelDataOffset + 1)); //Fixed address
     struct VBE_mode_info_block* VESAModeInfo = (struct VBE_mode_info_block*) ((uint32_t)(kernelDataOffset + 0x201)); //Fixed address
@@ -27,7 +45,7 @@ void main(){
 
     uint8_t testMode = *(uint8_t*) kernelDataOffset;
     if(testMode == 1){
-        for(uint32_t o=0;true;o+=(pitch*5)){
+        for(uint32_t o=0;true;o+=(pitch*20)){
             flipVram(vram, (char*)o, vramSize);
         }
     }
@@ -271,5 +289,9 @@ void* memcpy(void* dest, void* src, size_t size){
 void flipVram(char* vram, char* backbuffer, uint32_t vramSize){
     memcpy(vram, backbuffer, vramSize);
 }
+
+
+
+
 
 

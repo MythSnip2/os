@@ -1,9 +1,6 @@
 BITS 16
 ORG 0x7C00
 
-
-start_boot:
-
     ;set positive direction DF=0
     cld
 
@@ -11,21 +8,20 @@ start_boot:
     cli
 
 ;make sure running on 0:7C00, not 7C0:0
-    jmp 0x0000:start_nuckboot
-    
+    jmp 0:start_nuckboot
 start_nuckboot:
     ;zero out the segment registers
     xor ax, ax
     mov ds, ax
     mov es, ax
     mov fs, ax
+    mov ss, ax
+
+    ;initialize stack
+    mov sp, 0x7C00 ;stack grows below bootloader
 
     ;save the disk number
     mov [diskNum], dl
-
-    ;initialize stack
-    mov ss, ax
-    mov sp, 0x7BFF ;stack grows below bootloader
 
     ;set video mode to text mode(80x25)
     mov ax, 0x0003 ;ah = 0(function code), al = video mode flag
@@ -34,8 +30,6 @@ start_nuckboot:
     ;enable interrupts
     sti
 
-    xor ax, ax       ;print bootloader start msg
-    mov ds, ax
     mov si, startup_msg
     call _printstr
 
@@ -197,21 +191,75 @@ db 0x55, 0xAA
 ; end of first sector, 512B -----------------------------------------------------------------------------------------------
 
     ;Data    
-    msg db 'F1: bios setup/restart/boot next    '
-    db 'F2: restart (far jump to reset vector)', 0xD, 0xA
-    db 'F3: clear screen                    '
-    db 'F4: halt', 0xD, 0xA
-    db 'F5: BIOS beep                       '
-    db 'F6: load kernel and enter pmode', 0xD, 0xA
-    db 'F7: reload NuckBoot from dev', 0xD, 0xA
-    db 'F8 - F11: set kernel gfx test mode', 0xD, 0xA
-    db '    Virtual piano:', 0xD, 0xA
-    db 'Press ', 0x27, ' for lower octave, Press ', 0x22, ' for higher octave, Press ', 0x3B, ' to reset octave', 0xD, 0xA, 0
+    ;kernel data
+kernel_setting_block_start:
+    kernel_gfx_mode db 1 ;0 for VGA, 1 for VBE
+    kernel_VBE_mode dw 0xFFFF ;VBE mode number if gfx mode is set to 1
+    kernel_test_mode db 0
+
+; TOTAL of 512 bytes
+VBE_info_block_start:
+    VBE_info_block_signature db 'NEIN'
+    VBE_info_block_version dw 0
+    VBE_info_block_OEM_name_ptr dd 0 ;far ptr 32b
+    VBE_info_block_capabilities dd 0
+    VBE_info_block_video_mode_offset dw 0
+    VBE_info_block_video_mode_segment dw 0
+    VBE_info_block_total_memory dw 0 ;count of 64k blocks
+    times 492 db 0 ;reserved
+
+; TOTAL of 256 bytes
+VBE_mode_info_block_start:
+    VBE_mode_info_block_attributes dw 0 ;deprecated, if bit 7 is 1 supports a linear frame buffer
+    VBE_mode_info_block_window_a db 0 ;deprecated
+    VBE_mode_info_block_window_b db 0 ;deprecated
+    VBE_mode_info_block_granularity dw 0 ;in KB, deprecated
+    VBE_mode_info_block_window_size dw 0 ;in KB
+    VBE_mode_info_block_segment_a dw 0 ;0 if not supported
+    VBE_mode_info_block_segment_b dw 0 ;0 if not supported
+    VBE_mode_info_block_win_func_ptr dd 0  ;deprecated, used to switch banks in pmode without going to real
+    VBE_mode_info_block_pitch dw 0 ;bytes of vram to skip to go down a line
+
+    VBE_mode_info_block_width dw 0 ;in pixels(graphics)/columns(text)
+    VBE_mode_info_block_height dw 0 ;in pixels(graphics)/columns(text)
+    VBE_mode_info_block_char_width db 0 ;in pixels, unused
+    VBE_mode_info_block_char_height db 0 ;in pixels, unused
+    VBE_mode_info_block_planes_count db 0
+    VBE_mode_info_block_bpp db 0 ;bits per pixel
+    VBE_mode_info_block_banks_count db 0 ;deprecated, total amount of banks in the mode
+    VBE_mode_info_block_memory_model db 0
+    VBE_mode_info_block_bank_size db 0 ;in KB, deprecated, size of a bank
+    VBE_mode_info_block_image_pages_count db 0 ;count - 1
+    VBE_mode_info_block_reserved0 db 0 ;0 in revision 1.0-2.0, 1 in revision 3.0
+
+    ;size and pos of masks
+    VBE_mode_info_block_red_mask db 0
+    VBE_mode_info_block_red_pos db 0
+    VBE_mode_info_block_green_mask db 0
+    VBE_mode_info_block_green_pos db 0
+    VBE_mode_info_block_blue_mask db 0
+    VBE_mode_info_block_blue_pos db 0
+    VBE_mode_info_block_reserved_mask db 0
+    VBE_mode_info_block_reserved_pos db 0
+    VBE_mode_info_block_direct_color_attributes db 0
+
+    ;added in revision 2.0
+    VBE_mode_info_block_framebuffer dd 0 ;physical address of the framebuffer, write here
+    VBE_mode_info_block_off_screen_mem_offset dd 0 
+    VBE_mode_info_block_off_screen_mem_size dw 0 ;in KB, size of memory in framebuffer but not being displayed on the screen
+    VBE_mode_info_block_reserved times 206 db 0 ;available in revision 3.0, useless
+
+
+
+
+    msg db 0xD, 0xA, 'F1: PC functions submenu', 0xD, 0xA
+    db 'F2: change kernel boot options', 0xD, 0xA
+    db 'F3: enter 32 bit protected mode and execute Nuck OS', 0xD, 0xA, 0
 
     boot_pmode_msg db 0xD, 0xA, 'loading kernel...', 0xD, 0xA, 0
     kernel_loaded_msg db 'kernel loaded, switching to protected mode...', 0xD, 0xA, 0
     beep_msg db 'OAH', 0xD, 0xA, 0x7, 0
-    oslogo db 0xD, 0xA
+    oslogo
     db '               _   _            _      ____              _     OS Version   ', 0xD, 0xA
     db '              | \ | |_   _  ___| | __ | __ )  ___   ___ | |_      1.01      ', 0xD, 0xA
     db '              |  \| | | | |/ __| |/ / |  _ \ / _ \ / _ \| __|               ', 0xD, 0xA
@@ -305,6 +353,9 @@ db 0x55, 0xAA
 
     check_VBE_mode_best_screen_width dw 0
 
+    kernel_setting_selected db 0
+    kernel_setting_selected_mode_number dw 0
+
 ;code segment descriptor
 ;Base            32b: starting location of segment
 ;Limit           20b: size of limit
@@ -380,67 +431,20 @@ GDT_descriptor:
     ;start of GDT(32 bits)
     dd GDT_start
 
-kernel_test_mode db 1
-; TOTAL of 512 bytes
-VBE_info_block_start:
-    VBE_info_block_signature db 'NEIN'
-    VBE_info_block_version dw 0
-    VBE_info_block_OEM_name_ptr dd 0 ;far ptr 32b
-    VBE_info_block_capabilities dd 0
-    VBE_info_block_video_mode_offset dw 0
-    VBE_info_block_video_mode_segment dw 0
-    VBE_info_block_total_memory dw 0 ;count of 64k blocks
-    times 492 db 0 ;reserved
-
-; TOTAL of 256 bytes
-VBE_mode_info_block_start:
-    VBE_mode_info_block_attributes dw 0 ;deprecated, if bit 7 is 1 supports a linear frame buffer
-    VBE_mode_info_block_window_a db 0 ;deprecated
-    VBE_mode_info_block_window_b db 0 ;deprecated
-    VBE_mode_info_block_granularity dw 0 ;in KB, deprecated
-    VBE_mode_info_block_window_size dw 0 ;in KB
-    VBE_mode_info_block_segment_a dw 0 ;0 if not supported
-    VBE_mode_info_block_segment_b dw 0 ;0 if not supported
-    VBE_mode_info_block_win_func_ptr dd 0  ;deprecated, used to switch banks in pmode without going to real
-    VBE_mode_info_block_pitch dw 0 ;bytes of vram to skip to go down a line
-
-    VBE_mode_info_block_width dw 0 ;in pixels(graphics)/columns(text)
-    VBE_mode_info_block_height dw 0 ;in pixels(graphics)/columns(text)
-    VBE_mode_info_block_char_width db 0 ;in pixels, unused
-    VBE_mode_info_block_char_height db 0 ;in pixels, unused
-    VBE_mode_info_block_planes_count db 0
-    VBE_mode_info_block_bpp db 0 ;bits per pixel
-    VBE_mode_info_block_banks_count db 0 ;deprecated, total amount of banks in the mode
-    VBE_mode_info_block_memory_model db 0
-    VBE_mode_info_block_bank_size db 0 ;in KB, deprecated, size of a bank
-    VBE_mode_info_block_image_pages_count db 0 ;count - 1
-    VBE_mode_info_block_reserved0 db 0 ;0 in revision 1.0-2.0, 1 in revision 3.0
-
-    ;size and pos of masks
-    VBE_mode_info_block_red_mask db 0
-    VBE_mode_info_block_red_pos db 0
-    VBE_mode_info_block_green_mask db 0
-    VBE_mode_info_block_green_pos db 0
-    VBE_mode_info_block_blue_mask db 0
-    VBE_mode_info_block_blue_pos db 0
-    VBE_mode_info_block_reserved_mask db 0
-    VBE_mode_info_block_reserved_pos db 0
-    VBE_mode_info_block_direct_color_attributes db 0
-
-    ;added in revision 2.0
-    VBE_mode_info_block_framebuffer dd 0 ;physical address of the framebuffer, write here
-    VBE_mode_info_block_off_screen_mem_offset dd 0 
-    VBE_mode_info_block_off_screen_mem_size dw 0 ;in KB, size of memory in framebuffer but not being displayed on the screen
-    VBE_mode_info_block_reserved times 206 db 0 ;available in revision 3.0, useless
 
 
 main:
+    call check_enable_A20
+
+
     xor ax, ax
     mov ds, ax
     mov si, oslogo
     call _printstr
-
+hang_early:
     ;print a helpful message
+    xor ax, ax
+    mov ds, ax
     mov si, msg
     call _printstr
 
@@ -460,6 +464,294 @@ hang:
     pop ax
 
     cmp ah, 0x3B
+    je submenu_1
+    cmp ah, 0x3C
+    je submenu_2
+    cmp ah, 0x3D
+    je boot_pmode
+    cmp ah, 0x3E
+    je virtual_piano_loop
+
+    jmp hang
+
+
+
+check_enable_A20:
+    call get_a20_state
+
+
+
+;	out:
+;		ax - state (0 - disabled, 1 - enabled)
+get_a20_state:
+	pushf
+	push si
+	push di
+	push ds
+	push es
+	cli
+
+	mov ax, 0x0000					;	0x0000:0x0500(0x00000500) -> ds:si
+	mov ds, ax
+	mov si, 0x0500
+
+	not ax							;	0xffff:0x0510(0x00100500) -> es:di
+	mov es, ax
+	mov di, 0x0510
+
+	mov al, [ds:si]					;	save old values
+	mov byte [.BufferBelowMB], al
+	mov al, [es:di]
+	mov byte [.BufferOverMB], al
+
+	mov ah, 1						;	check byte [0x00100500] == byte [0x0500]
+	mov byte [ds:si], 0
+	mov byte [es:di], 1
+	mov al, [ds:si]
+	cmp al, [es:di]
+	jne .exit
+	dec ah
+.exit:
+	mov al, [.BufferBelowMB]
+	mov [ds:si], al
+	mov al, [.BufferOverMB]
+	mov [es:di], al
+	shr ax, 8
+	sti
+	pop es
+	pop ds
+	pop di
+	pop si
+	popf
+	ret
+	
+	.BufferBelowMB:	db 0
+	.BufferOverMB	db 0
+
+;	out:
+;		ax - a20 support bits (bit #0 - supported on keyboard controller; bit #1 - supported with bit #1 of port 0x92)
+;		cf - set on error
+query_a20_support:
+	push bx
+	clc
+
+	mov ax, 0x2403
+	int 0x15
+	jc .error
+
+	test ah, ah
+	jnz .error
+
+	mov ax, bx
+	pop bx
+	ret
+.error:
+	stc
+	pop bx
+	ret
+
+enable_a20_keyboard_controller:
+	cli
+
+	call .wait_io1
+	mov al, 0xad
+	out 0x64, al
+	
+	call .wait_io1
+	mov al, 0xd0
+	out 0x64, al
+	
+	call .wait_io2
+	in al, 0x60
+	push eax
+	
+	call .wait_io1
+	mov al, 0xd1
+	out 0x64, al
+	
+	call .wait_io1
+	pop eax
+	or al, 2
+	out 0x60, al
+	
+	call .wait_io1
+	mov al, 0xae
+	out 0x64, al
+	
+	call .wait_io1
+	sti
+	ret
+.wait_io1:
+	in al, 0x64
+	test al, 2
+	jnz .wait_io1
+	ret
+.wait_io2:
+	in al, 0x64
+	test al, 1
+	jz .wait_io2
+	ret
+
+;	out:
+;		cf - set on error
+enable_a20:
+	clc									;	clear cf
+	pusha
+	mov bh, 0							;	clear bh
+
+	call get_a20_state
+	jc .fast_gate
+
+	test ax, ax
+	jnz .done
+
+	call query_a20_support
+	mov bl, al
+	test bl, 1							;	enable A20 using keyboard controller
+	jnz .keybord_controller
+
+	test bl, 2							;	enable A20 using fast A20 gate
+	jnz .fast_gate
+.bios_int:
+	mov ax, 0x2401
+	int 0x15
+	jc .fast_gate
+	test ah, ah
+	jnz .failed
+	call get_a20_state
+	test ax, ax
+	jnz .done
+.fast_gate:
+	in al, 0x92
+	test al, 2
+	jnz .done
+
+	or al, 2
+	and al, 0xfe
+	out 0x92, al
+
+	call get_a20_state
+	test ax, ax
+	jnz .done
+
+	test bh, bh							;	test if there was an attempt using the keyboard controller
+	jnz .failed
+.keybord_controller:
+	call enable_a20_keyboard_controller
+	call get_a20_state
+	test ax, ax
+	jnz .done
+
+	mov bh, 1							;	flag enable attempt with keyboard controller
+
+	test bl, 2
+	jnz .fast_gate
+	jmp .failed
+.failed:
+	stc
+.done:
+	popa
+	ret
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+submenu_1_msg db 0xD, 0xA, 'PC functions:', 0xD, 0xA
+db 'F1: restart/boot next/enter BIOS', 0xD, 0xA
+db 'F2: restart(jmp to reset vector)', 0xD, 0xA
+db 'F3: clear screen', 0xD, 0xA
+db 'F4: halt', 0xD, 0xA
+db 'F5: BIOS beep', 0xD, 0xA
+db 'F6: Reload NuckBoot from boot device', 0xD, 0xA
+db 'Esc: go back', 0xD, 0xA, 0x7, 0
+
+
+submenu_1:
+    ;print message
+    xor ax, ax
+    mov ds, ax
+    mov si, submenu_1_msg
+    call _printstr
+
+submenu_1_hang:
+    mov ah, 0x01;ah = 1, get keyboard status(check if a key is pressed)
+    int 0x16 ;keyboard services
+    ;return: AL = character, AH = scan code
+    jz submenu_1_hang ;if key not pressed jump back
+    ;if there is a key use int 0x16,0 to get the results
+    xor ax, ax
+    int 0x16 ;ah = scancode, al = char
+
+    ;print char
+    push ax
+    mov ah, 0x0E
+    int 0x10
+    pop ax
+
+    ;check Esc
+    cmp ah, 0x01
+    je hang_early
+    ;F1-5
+    cmp ah, 0x3B
     je biosboot_pc
     cmp ah, 0x3C
     je restart_pc
@@ -470,42 +762,201 @@ hang:
     cmp ah, 0x3F
     je biosbeep
     cmp ah, 0x40
-    je boot_pmode
-    cmp ah, 0x41
     je retest
 
-    ;sets mode for the kernel to have different behaviors
-    cmp ah, 0x42
-    je kernel_test_1
-    cmp ah, 0x43
-    je kernel_test_2
-    cmp ah, 0x44
-    je kernel_test_3
-    cmp ah, 0x85
-    je kernel_test_4
+    jmp submenu_1_hang
+
+submenu_2_msg db 0xD, 0xA, 'Nuck OS boot settings:', 0xD, 0xA
+db 'F1: change kernel graphics mode', 0xD, 0xA
+db 'F2: change kernel test mode', 0xD, 0xA
+db 'Esc: go back', 0xD, 0xA, 0x7, 0
+submenu_2_msg2 db 'Select gfx mode:', 0xD, 0xA
+db 'F1: select VGA', 0xD, 0xA, 0
+db 'F2: list all VBE modes', 0xD, 0xA, 0
+db 'F3: list 
+
+
+submenu_2:
+    ;print message
+    xor ax, ax
+    mov ds, ax
+    mov si, submenu_2_msg
+    call _printstr
+
+submenu_2_hang:
+    call print_kernel_current_settings
+submenu_2_keyhang:
+    mov ah, 0x01;ah = 1, get keyboard status(check if a key is pressed)
+    int 0x16 ;keyboard services
+    ;return: AL = character, AH = scan code
+    jz submenu_2_keyhang ;if key not pressed jump back
+    ;if there is a key use int 0x16,0 to get the results
+    xor ax, ax
+    int 0x16 ;ah = scancode, al = char
+
+    cmp ah, 0x01
+    je hang_early
+
+    cmp ah, 0x3B
+    je submenu_2_select_gfx_mode
+
+
+    jmp submenu_2_hang
+
+submenu_2_select_gfx_mode:
+    xor ax, ax
+    mov ds, ax
+    mov si, submenu_2_msg2
+    call _printstr
+
+submenu_2_select_gfx_mode_loop:
+    mov ah, 0x01;ah = 1, get keyboard status(check if a key is pressed)
+    int 0x16 ;keyboard services
+    ;return: AL = character, AH = scan code
+    jz submenu_2_select_gfx_mode_loop ;if key not pressed jump back
+    ;if there is a key use int 0x16,0 to get the results
+    xor ax, ax
+    int 0x16 ;ah = scancode, al = char
+
+    cmp ah, 0x01
+    je submenu_2_hang
+
+    cmp ah, 0x3B
+    je biosboot_pc
+    cmp ah, 0x3C
+    je restart_pc
+    
+
+
+    jmp submenu_2_select_gfx_mode_loop
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+print_kernel_current_settings_msg1 db 'Current settings:', 0xD, 0xA, 0
+print_kernel_current_settings_msg2 db 'VGA Text 80x25', 0xD, 0xA, 0
+print_kernel_current_settings_msg3 db 'VBE/VESA Mode ', 0
+print_kernel_current_settings_msg4 db 'Not selected', 0xD, 0xA, 0
+print_kernel_current_settings_msg5 db 'Not selected', 0xD, 0xA, 0
+print_kernel_current_settings_msg6 db 'Kernel test mode: ', 0
+
+
+print_kernel_current_settings:
+    xor ax, ax
+    mov ds, ax
+    mov si, print_kernel_current_settings_msg1
+    call _printstr
+    mov bl, [kernel_gfx_mode]
+    or bl, bl
+    jne print_kernel_current_settings_notVGA
+    ;VGA text mode
+    xor ax, ax
+    mov ds, ax
+    mov si, print_kernel_current_settings_msg2
+    call _printstr
+print_kernel_current_settings_back:
+    xor ax, ax
+    mov ds, ax
+    mov si, print_kernel_current_settings_msg6
+    call _printstr
+
+    mov al, [kernel_test_mode]
+    call print_al
+
+    mov ax, 0xE0D
+    int 0x10
+    mov ax, 0xE0A
+    int 0x10
+
+    ret
+
+print_kernel_current_settings_notVGA:
+    xor ax, ax
+    mov ds, ax
+    mov si, print_kernel_current_settings_msg3
+    call _printstr
+    mov al, [kernel_setting_selected]
+    or al, al
+    je print_kernel_current_settings_notVGA_not_selected
+    ;query info about selected mode
+    mov ax, [kernel_setting_selected_mode_number]
+    call print_VBE_mode_text
+
+    jmp print_kernel_current_settings_back
+
+print_kernel_current_settings_notVGA_not_selected:
+    xor ax, ax
+    mov ds, ax
+    mov si, print_kernel_current_settings_msg4
+    call _printstr
+    jmp print_kernel_current_settings_back
+
+
+
+
+
+
+
+
+
+virtual_piano_menu_msg db 0xD, 0xA, 'Virtual piano:', 0xD, 0xA
+db 'Esc: go back', 0xD, 0xA, 0x7, 0
+
+virtual_piano_loop:
+    ;print message
+    xor ax, ax
+    mov ds, ax
+    mov si, virtual_piano_menu_msg
+    call _printstr
+virtual_piano_looploop:
+    mov ah, 0x01;ah = 1, get keyboard status(check if a key is pressed)
+    int 0x16 ;keyboard services
+    ;return: AL = character, AH = scan code
+    jz virtual_piano_looploop ;if key not pressed jump back
+    ;if there is a key use int 0x16,0 to get the results
+    xor ax, ax
+    int 0x16 ;ah = scancode, al = char
+
+    ;print char
+    push ax
+    mov ah, 0x0E
+    int 0x10
+    pop ax
+
+    ;check Esc
+    cmp ah, 0x01
+    je hang_early
+    
     push ax
     call hang_virtual_piano
     pop ax
 
-    jmp hang
+    jmp virtual_piano_looploop
 
-kernel_test_1:
-    mov bx, 1
-    jmp kernel_test_oah
-kernel_test_2:
-    mov bx, 2
-    jmp kernel_test_oah
-kernel_test_3:
-    mov bx, 3
-    jmp kernel_test_oah
-kernel_test_4:
-    mov bx, 4
-kernel_test_oah:
-    mov [kernel_test_mode], bl
-    jmp hang
+
+
+
+
+
+
+
+
+
+
+
 
 ;subroutine to retest nuck os
 retest:
@@ -646,7 +1097,7 @@ cls_loop:
     mov ax, 0x0E0A
     int 0x10
     loop cls_loop
-    jmp hang
+    jmp submenu_1_hang
 
 ;bios beep tone
 biosbeep:
@@ -656,7 +1107,7 @@ biosbeep:
     call _printstr
     mov cx, 0x100
     call _wait
-    jmp hang
+    jmp submenu_1_hang
 
 halt:
     mov cx, 50
@@ -1069,22 +1520,19 @@ VBEStuff_iter_modes_exit:
     mov ax, [check_VBE_mode_best_mode_number]
     call print_VBE_mode_text
 
+    ret
 
+
+
+VBEStuff_setMode:
     ;switch to the mode
     xor ax, ax
     mov ds, ax
     mov si, VBEStuff_iter_modes_best_mode_msg1
     call _printstr
 
-    ;print which mode is actually doing
-    mov al, [kernel_test_mode]
-    add al, '0'
-    mov ah, 0xE
-    int 0x10
-
     mov cx, 0x3000
     call _wait
-
 
     ;set video mode
     xor ax, ax
@@ -1092,8 +1540,10 @@ VBEStuff_iter_modes_exit:
     mov ax, 0x4F02
     mov bx, [check_VBE_mode_best_mode_number]
     int 0x10
-
     ret
+
+
+
 
 
 
@@ -1306,6 +1756,7 @@ clear_loop:
 
     ;VBE graphics
     call VBEStuff
+    call VBEStuff_setMode
 
     cli
     lgdt [GDT_descriptor] ;load GDT
@@ -1327,7 +1778,7 @@ pmode:
     mov es, ax
     mov fs, ax
     mov gs, ax
-    mov ebp, 0x7FFFF ;stack
+    mov ebp, 0x80000 ;stack
     mov esp, ebp
 
     ;jump to loaded kernel
