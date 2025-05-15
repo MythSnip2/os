@@ -23,14 +23,11 @@ void flipVram(char* vram, char* backbuffer, uint32_t vramSize);
 
 
 
-
-
-
 void main(){
     uint32_t kernelDataOffset = 0x7C00 + 0x200;
 
-    struct VBE_info_block* VESAControllerInfo = (struct VBE_info_block*) ((uint32_t)(kernelDataOffset + 1)); //Fixed address
-    struct VBE_mode_info_block* VESAModeInfo = (struct VBE_mode_info_block*) ((uint32_t)(kernelDataOffset + 0x201)); //Fixed address
+    struct VBE_info_block* VESAControllerInfo = (struct VBE_info_block*) ((uint32_t)(kernelDataOffset + 4)); //Fixed address
+    struct VBE_mode_info_block* VESAModeInfo = (struct VBE_mode_info_block*) ((uint32_t)(kernelDataOffset + 0x204)); //Fixed address
 
     uint16_t width = (uint16_t)VESAModeInfo->width;
     uint16_t height = (uint16_t)VESAModeInfo->height;

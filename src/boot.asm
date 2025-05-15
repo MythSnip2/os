@@ -188,8 +188,8 @@ __wait_innerloop:
 
 times 510-($-$$) db 0 ;510B excluding boot signature
 db 0x55, 0xAA
-; end of first sector, 512B -----------------------------------------------------------------------------------------------
-
+; end of first sector, 512B -------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------
     ;Data    
     ;kernel data
 kernel_setting_block_start:
@@ -249,12 +249,12 @@ VBE_mode_info_block_start:
     VBE_mode_info_block_off_screen_mem_size dw 0 ;in KB, size of memory in framebuffer but not being displayed on the screen
     VBE_mode_info_block_reserved times 206 db 0 ;available in revision 3.0, useless
 
-
-
+;----------------------------------------------------------------------------------------------------------------------------
 
     msg db 0xD, 0xA, 'F1: PC functions submenu', 0xD, 0xA
     db 'F2: change kernel boot options', 0xD, 0xA
     db 'F3: enter 32 bit protected mode and execute Nuck OS', 0xD, 0xA, 0
+    db 'F4: virtual piano', 0xD, 0xA, 0
 
     boot_pmode_msg db 0xD, 0xA, 'loading kernel...', 0xD, 0xA, 0
     kernel_loaded_msg db 'kernel loaded, switching to protected mode...', 0xD, 0xA, 0
@@ -320,10 +320,9 @@ VBE_mode_info_block_start:
     kernel_load_fail_final db 'Kernel load failed, going back to real mode...', 0xD, 0xA, 0
     kernel_load_success db 'Kernel load success', 0xD, 0xA, 0
 
-    VBEStuff_get_controller_info_success_msg db "VBE get controller info success!", 0xD, 0xA, 0
+    VBEStuff_get_controller_info_success_msg db "VBE get controller info success!", 0xD, 0xA, "VBE controller info:", 0xD, 0xA, 0
     VBEStuff_get_controller_info_fail_msg db "VBE get controller info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
 
-    VBEStuff_get_controller_info_print_msg db "VBE controller info:", 0xD, 0xA, 0
     VBEStuff_get_controller_info_print_msg1 db 0xD, 0xA, "Video modes ptr(seg:off): ", 0
 
     VBEStuff_get_mode_info_fail_msg db "VBE get mode info fail!", 0xD, 0xA, "Press any key to continue...", 0xD, 0xA, 0
@@ -431,10 +430,9 @@ GDT_descriptor:
     ;start of GDT(32 bits)
     dd GDT_start
 
-
+;----------------------------------------------------------------------------------------------------------------------------
 
 main:
-    call check_enable_A20
 
 
     xor ax, ax
@@ -475,244 +473,7 @@ hang:
     jmp hang
 
 
-
-check_enable_A20:
-    call get_a20_state
-
-
-
-;	out:
-;		ax - state (0 - disabled, 1 - enabled)
-get_a20_state:
-	pushf
-	push si
-	push di
-	push ds
-	push es
-	cli
-
-	mov ax, 0x0000					;	0x0000:0x0500(0x00000500) -> ds:si
-	mov ds, ax
-	mov si, 0x0500
-
-	not ax							;	0xffff:0x0510(0x00100500) -> es:di
-	mov es, ax
-	mov di, 0x0510
-
-	mov al, [ds:si]					;	save old values
-	mov byte [.BufferBelowMB], al
-	mov al, [es:di]
-	mov byte [.BufferOverMB], al
-
-	mov ah, 1						;	check byte [0x00100500] == byte [0x0500]
-	mov byte [ds:si], 0
-	mov byte [es:di], 1
-	mov al, [ds:si]
-	cmp al, [es:di]
-	jne .exit
-	dec ah
-.exit:
-	mov al, [.BufferBelowMB]
-	mov [ds:si], al
-	mov al, [.BufferOverMB]
-	mov [es:di], al
-	shr ax, 8
-	sti
-	pop es
-	pop ds
-	pop di
-	pop si
-	popf
-	ret
-	
-	.BufferBelowMB:	db 0
-	.BufferOverMB	db 0
-
-;	out:
-;		ax - a20 support bits (bit #0 - supported on keyboard controller; bit #1 - supported with bit #1 of port 0x92)
-;		cf - set on error
-query_a20_support:
-	push bx
-	clc
-
-	mov ax, 0x2403
-	int 0x15
-	jc .error
-
-	test ah, ah
-	jnz .error
-
-	mov ax, bx
-	pop bx
-	ret
-.error:
-	stc
-	pop bx
-	ret
-
-enable_a20_keyboard_controller:
-	cli
-
-	call .wait_io1
-	mov al, 0xad
-	out 0x64, al
-	
-	call .wait_io1
-	mov al, 0xd0
-	out 0x64, al
-	
-	call .wait_io2
-	in al, 0x60
-	push eax
-	
-	call .wait_io1
-	mov al, 0xd1
-	out 0x64, al
-	
-	call .wait_io1
-	pop eax
-	or al, 2
-	out 0x60, al
-	
-	call .wait_io1
-	mov al, 0xae
-	out 0x64, al
-	
-	call .wait_io1
-	sti
-	ret
-.wait_io1:
-	in al, 0x64
-	test al, 2
-	jnz .wait_io1
-	ret
-.wait_io2:
-	in al, 0x64
-	test al, 1
-	jz .wait_io2
-	ret
-
-;	out:
-;		cf - set on error
-enable_a20:
-	clc									;	clear cf
-	pusha
-	mov bh, 0							;	clear bh
-
-	call get_a20_state
-	jc .fast_gate
-
-	test ax, ax
-	jnz .done
-
-	call query_a20_support
-	mov bl, al
-	test bl, 1							;	enable A20 using keyboard controller
-	jnz .keybord_controller
-
-	test bl, 2							;	enable A20 using fast A20 gate
-	jnz .fast_gate
-.bios_int:
-	mov ax, 0x2401
-	int 0x15
-	jc .fast_gate
-	test ah, ah
-	jnz .failed
-	call get_a20_state
-	test ax, ax
-	jnz .done
-.fast_gate:
-	in al, 0x92
-	test al, 2
-	jnz .done
-
-	or al, 2
-	and al, 0xfe
-	out 0x92, al
-
-	call get_a20_state
-	test ax, ax
-	jnz .done
-
-	test bh, bh							;	test if there was an attempt using the keyboard controller
-	jnz .failed
-.keybord_controller:
-	call enable_a20_keyboard_controller
-	call get_a20_state
-	test ax, ax
-	jnz .done
-
-	mov bh, 1							;	flag enable attempt with keyboard controller
-
-	test bl, 2
-	jnz .fast_gate
-	jmp .failed
-.failed:
-	stc
-.done:
-	popa
-	ret
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+;----------------------------------------------------------------------------------------------------------------------------
 
 
 submenu_1_msg db 0xD, 0xA, 'PC functions:', 0xD, 0xA
@@ -766,15 +527,18 @@ submenu_1_hang:
 
     jmp submenu_1_hang
 
+
+;----------------------------------------------------------------------------------------------------------------------------
+
 submenu_2_msg db 0xD, 0xA, 'Nuck OS boot settings:', 0xD, 0xA
 db 'F1: change kernel graphics mode', 0xD, 0xA
 db 'F2: change kernel test mode', 0xD, 0xA
 db 'Esc: go back', 0xD, 0xA, 0x7, 0
 submenu_2_msg2 db 'Select gfx mode:', 0xD, 0xA
-db 'F1: select VGA', 0xD, 0xA, 0
-db 'F2: list all VBE modes', 0xD, 0xA, 0
-db 'F3: list 
-
+db 'F1: select VGA', 0xD, 0xA
+db 'F2: list all VBE modes', 0xD, 0xA
+db 'F3: list and select valid VBE mode', 0xD, 0xA, 0
+submenu_2_msg3 db 'VGA selected', 0xD, 0xA, 0
 
 submenu_2:
     ;print message
@@ -821,38 +585,36 @@ submenu_2_select_gfx_mode_loop:
     cmp ah, 0x01
     je submenu_2_hang
 
-    cmp ah, 0x3B
-    je biosboot_pc
+    cmp ah, 0x3B 
+    je submenu_2_select_gfx_mode_VGA
     cmp ah, 0x3C
-    je restart_pc
-    
-
+    je submenu_2_select_gfx_mode_VBE1
+    cmp ah, 0x3D
+    je submenu_2_select_gfx_mode_VBE2
 
     jmp submenu_2_select_gfx_mode_loop
+submenu_2_select_gfx_mode_VGA:
+    xor ax, ax
+    mov [kernel_gfx_mode], ax
+    mov ds, ax
+    mov si, submenu_2_msg3
+    call _printstr
+    je submenu_2_select_gfx_mode_loop
+submenu_2_select_gfx_mode_VBE1:
+    ;list all VBE modes
+    call VBEStuff
+    je submenu_2_select_gfx_mode_loop
+submenu_2_select_gfx_mode_VBE2:
+    ;list valid VBE modes
+    call VBEStuff
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    je submenu_2_select_gfx_mode_loop
 
 print_kernel_current_settings_msg1 db 'Current settings:', 0xD, 0xA, 0
 print_kernel_current_settings_msg2 db 'VGA Text 80x25', 0xD, 0xA, 0
 print_kernel_current_settings_msg3 db 'VBE/VESA Mode ', 0
 print_kernel_current_settings_msg4 db 'Not selected', 0xD, 0xA, 0
-print_kernel_current_settings_msg5 db 'Not selected', 0xD, 0xA, 0
-print_kernel_current_settings_msg6 db 'Kernel test mode: ', 0
-
+print_kernel_current_settings_msg5 db 'Kernel test mode: ', 0
 
 print_kernel_current_settings:
     xor ax, ax
@@ -870,7 +632,7 @@ print_kernel_current_settings:
 print_kernel_current_settings_back:
     xor ax, ax
     mov ds, ax
-    mov si, print_kernel_current_settings_msg6
+    mov si, print_kernel_current_settings_msg5
     call _printstr
 
     mov al, [kernel_test_mode]
@@ -907,8 +669,7 @@ print_kernel_current_settings_notVGA_not_selected:
 
 
 
-
-
+;----------------------------------------------------------------------------------------------------------------------------
 
 
 
@@ -946,13 +707,7 @@ virtual_piano_looploop:
 
     jmp virtual_piano_looploop
 
-
-
-
-
-
-
-
+;----------------------------------------------------------------------------------------------------------------------------
 
 
 
@@ -1011,6 +766,7 @@ retest__disk_read_fail_final:
     int 0x16 ;keyboard services
     jmp biosboot_pc
 
+;----------------------------------------------------------------------------------------------------------------------------
 
 
 ;subroutine to play a note in virtual piano
@@ -1089,6 +845,9 @@ hang_virtual_piano_play:
     call speaker_off
     jmp hang
 
+;----------------------------------------------------------------------------------------------------------------------------
+
+
 cls:
     mov cx, 50
 cls_loop:
@@ -1098,6 +857,20 @@ cls_loop:
     int 0x10
     loop cls_loop
     jmp submenu_1_hang
+
+
+cls_call:
+    mov cx, 50
+cls_loop_call:
+    mov ax, 0x0E0D
+    int 0x10
+    mov ax, 0x0E0A
+    int 0x10
+    loop cls_loop_call
+    ret
+
+;----------------------------------------------------------------------------------------------------------------------------
+
 
 ;bios beep tone
 biosbeep:
@@ -1124,6 +897,9 @@ halt_cls_loop:
 
     cli
     hlt
+
+;----------------------------------------------------------------------------------------------------------------------------
+
 
 ;dx*cx is amount of ticks to wait
 _wait_PIT:
@@ -1165,6 +941,8 @@ _read_PIT_ticks:
     mov bh, al
     sti
     ret
+
+;----------------------------------------------------------------------------------------------------------------------------
 
 ;PIT notes
 ;I/O port     Usage
@@ -1228,6 +1006,8 @@ speaker_off:
     sti
     ret
 
+;----------------------------------------------------------------------------------------------------------------------------
+
 
 print_ax:
     pusha
@@ -1259,6 +1039,9 @@ print_ax_loop2:
     popa
     ret
 
+;----------------------------------------------------------------------------------------------------------------------------
+
+
 print_al:
     pusha
 
@@ -1289,6 +1072,8 @@ print_al_loop2:
     loop print_al_loop2
     popa
     ret
+
+;----------------------------------------------------------------------------------------------------------------------------
 
 
 ;print value of ax in decimal
@@ -1330,6 +1115,8 @@ print_ax_decimal_zero:
 print_ax_decimal_end:
     popa
     ret
+
+;----------------------------------------------------------------------------------------------------------------------------
 
 
 _kernel_load:
@@ -1401,6 +1188,9 @@ __kernel_load_fail_final:
     pop ax
     jmp hang  ;go back to 16 bit hang loop if fail
 
+;----------------------------------------------------------------------------------------------------------------------------
+
+
 
 ;FAILSTATES
 VBEStuff_get_controller_info_fail:
@@ -1422,6 +1212,8 @@ VBEStuff_get_mode_info_fail:
     int 0x16 ;keyboard services
     jmp biosboot_pc
 
+
+
 VBEStuff:
     ;get controller info
     xor ax, ax ;es:di
@@ -1438,10 +1230,6 @@ VBEStuff:
     call _printstr
 
     ;print controller info
-    xor ax, ax
-    mov ds, ax
-    mov si, VBEStuff_get_controller_info_print_msg
-    call _printstr
 
     mov al, [VBE_info_block_signature]
     mov ah, 0xE
@@ -1523,8 +1311,12 @@ VBEStuff_iter_modes_exit:
     ret
 
 
+;----------------------------------------------------------------------------------------------------------------------------
 
+
+;mode number in ax
 VBEStuff_setMode:
+    push ax
     ;switch to the mode
     xor ax, ax
     mov ds, ax
@@ -1538,14 +1330,11 @@ VBEStuff_setMode:
     xor ax, ax
     mov ds, ax
     mov ax, 0x4F02
-    mov bx, [check_VBE_mode_best_mode_number]
+    pop bx
     int 0x10
     ret
 
-
-
-
-
+;----------------------------------------------------------------------------------------------------------------------------
 
 
 print_VBE_mode_text:
@@ -1556,7 +1345,7 @@ print_VBE_mode_text:
     cmp ax, 0xFFFF
     je print_VBE_mode_text_end
 
-    ;print value in ax
+    ;if dl is not 1, print value in ax
     call print_ax
 
     ;print space
@@ -1624,7 +1413,7 @@ print_VBE_mode_text:
 
     ;now check if the mode is actually good & find best one
     call check_VBE_mode
-
+    
     mov ax, 0x0E0D
     int 0x10
     mov ax, 0x0E0A
@@ -1635,29 +1424,28 @@ print_VBE_mode_text:
 print_VBE_mode_text_end:
     ret
 
+;----------------------------------------------------------------------------------------------------------------------------
 
-
-
-
+;CF=1: mode is not valid
 check_VBE_mode:
     
     ;if LFB is false, exit
     mov ax, [VBE_mode_info_block_attributes]
     and ax, 0b10000000 ;if bit 7 is 1 it supports
     or ax, ax
-    jz check_VBE_mode_exit
+    jz check_VBE_mode_exit_notValid
 
     ;if mm is not 6, exit
     xor ax, ax
     mov al, [VBE_mode_info_block_memory_model]
     cmp al, 6
-    jne check_VBE_mode_exit
+    jne check_VBE_mode_exit_notValid
 
     ;if bpp is not 32, exit
     xor ax, ax
     mov al, [VBE_mode_info_block_bpp]
     cmp al, 32
-    jne check_VBE_mode_exit
+    jne check_VBE_mode_exit_notValid
 
     ;print valid
     xor ax, ax
@@ -1710,12 +1498,31 @@ check_VBE_mode_update:
     mov si, check_VBE_mode_msg1
     call _printstr
 check_VBE_mode_exit:
+    clc
+    ret
+
+check_VBE_mode_exit_notValid:
+    stc
     ret
 
 
-
-
-
+;----------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------
 
 
 boot_pmode:
@@ -1789,5 +1596,3 @@ pmode:
 
 
 times 30720-($-$$) db 0 ;total length of binary 60 sector
-
-
